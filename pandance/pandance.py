@@ -30,7 +30,7 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
 
     .. Note::
         Because this operation accepts arbitrary relations,
-        *reflexivity (i.e. x R x) is not implemented*.
+        *reflexivity (i.e. x R x, for all x) is not implemented*.
         A simple example is the "<" relation,
         where reflexivity (*x < x*) doesn't hold.
         So the user must specify reflexivity in the given ``relation`` themselves.
