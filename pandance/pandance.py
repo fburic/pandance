@@ -23,11 +23,21 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
     that holds between these entries,
     as a generalization of equijoins, where this relation is simply equality.
     See examples below and the
-    `Wikipedia article <https://en.wikipedia.org/wiki/Relational_algebra#%CE%B8-join_and_equijoin>`_.
+    `Wikipedia article <https://en.wikipedia.org/wiki/Relational_algebra#%CE%B8-join_and_equijoin>`_,
+    though note that in Pandance `theta` isn't limited to the typical set
+    {<, <=, =, !=, >=, >}. Rather, the user may specify arbitrary relations,
+    as described below.
+
+    .. Note::
+        Because this operation accepts arbitrary relations,
+        *reflexivity (i.e. x R x) is not implemented*.
+        A simple example is the "<" relation,
+        where reflexivity (*x < x*) doesn't hold.
+        So the user must specify reflexivity in the given ``relation`` themselves.
 
     The ``fuzzy_join()`` operation is a special case where
-    `theta` = `approximately_equal`, offered as a separate function since it can be
-    implemented more efficiently.
+    `theta` = `approximately_equal`, offered as a separate function
+    since it can be implemented more efficiently.
 
     .. Warning::
         This operation is **memory-intensive**!
@@ -112,6 +122,17 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
     """
     left_on = on if not None else left_on
     right_on = on if not None else right_on
+    if isinstance(relation, pd.DataFrame):
+        relation_pairs = dict(relation.values)
+
+        def relation(a, b):
+            # Explicit check for presence of `a` to avoid any weird issues
+            # with None, N/As, and default values
+            if a not in relation_pairs:
+                # Ought to be the more common case with larger tables
+                return False
+            else:
+                return relation_pairs[a] == b
 
     # Cartesian join
     result = pd.merge(left[[left_on]], right[[right_on]], how='cross')
