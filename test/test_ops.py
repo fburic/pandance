@@ -1,4 +1,5 @@
 # Unit tests for Pandance DataFrame operations
+import numpy as np
 import pandas as pd
 
 import pandance as dance
@@ -9,7 +10,6 @@ def test_fuzzy_join():
 
 
 def test_theta_join_categorical():
-
     old_inventory = pd.DataFrame.from_records(
         [('drink', 12),
          ('sandwich', 40),
@@ -79,3 +79,34 @@ def test_theta_join_numeric():
     result = result.sort_values('key_x').reset_index(drop=True)
     expected_result = expected_result.sort_values('key_x').reset_index(drop=True)
     assert result.compare(expected_result).empty
+
+
+def test_mem_usage():
+    len_a = 100
+    len_b = 10
+    unit_size_data = 2
+    unit_size_idx = 8
+
+    a = pd.DataFrame.from_records(
+        np.arange(len_a, dtype=np.uint16).reshape(-1, 1),
+        columns=['data']
+    )
+
+    b = pd.DataFrame.from_records(
+        np.arange(100, 100 + len_b, dtype=np.uint16).reshape(-1, 1),
+        columns=['data']
+    )
+
+    # Formulas derived for this test. Should be equivalent to generic func calc
+    exp_idx_size = unit_size_idx * len_a * len_b
+    exp_col_size = 2 * unit_size_data * len_a * len_b
+    expected_size = (exp_idx_size + exp_col_size) / 1024**2
+
+    cartesian_join = pd.merge(a[['data']], b[['data']], how='cross')
+    cartesian_cost = cartesian_join.memory_usage(deep=True).sum() / 1024**2
+
+    est_cost = dance._estimate_mem_cost_cartesian(a, b)
+    # Triangle approximate equality just to be paranoid about float errors
+    assert np.isclose(cartesian_cost, expected_size)
+    assert np.isclose(expected_size, est_cost)
+    assert np.isclose(cartesian_cost, est_cost)

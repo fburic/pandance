@@ -1,8 +1,13 @@
+import logging
+import psutil
 from typing import Callable, Union, Optional
 
 import pandas as pd
 
-__all__ = ['fuzzy_join', 'theta_join']
+__all__ = ['fuzzy_join', 'theta_join', '_estimate_mem_cost_cartesian']
+
+
+logger = logging.getLogger()
 
 
 def fuzzy_join(left: pd.DataFrame, right: pd.DataFrame,
@@ -17,7 +22,7 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
                on: str = None, left_on: str = None, right_on: str = None,
                suffixes: Optional[tuple] = ('_x', '_y')) -> pd.DataFrame:
     """
-    A theta join is a join operation in which entry pairs in two columns
+    A *theta-join* is a join operation in which entry pairs in two columns
     are matched using an arbitrary
     `relation <https://en.wikipedia.org/wiki/Binary_relation>`_ `theta`
     that holds between these entries,
@@ -40,13 +45,17 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
     since it can be implemented more efficiently.
 
     .. Warning::
-        This operation is **memory-intensive**!
+        This operation is **memory-intensive!**
         Since this is a generic operation for any given `theta` relation,
         it's implemented as a Cartesian product of the two ``on`` columns
         in the input DataFrames,
         followed by a filter on the pairs for which the `theta` relation holds.
         So the memory usage is `O(N * M)`,
         where `N` and `M` are the respective sizes of the ``on`` columns.
+
+        A warning is logged if the estimated requirement is above 75%
+        of available memory and a ``MemoryError`` is raised if the estimate exceeds
+        available memory.
 
     **Example 1**
 
@@ -118,10 +127,20 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
     :param suffixes: A length-2 sequence where each element is optionally
         a string indicating the suffix to add to overlapping column names
         in left and right respectively, passed to ``pandas.merge()``
-    :return:
+    :return: The *theta*-join of the two DataFrames.
     """
     left_on = on if not None else left_on
     right_on = on if not None else right_on
+
+    est_mem = _estimate_mem_cost_cartesian(left[[left_on]], right[[right_on]])
+    avail_mem = psutil.virtual_memory()
+    avail_mem = (avail_mem.total - avail_mem.used) / 1024**2
+    if est_mem > avail_mem:
+        logger.error(f'The operation requires more memory than is currently available: {est_mem}')
+        raise MemoryError
+    if est_mem / avail_mem > 0.75:
+        logger.warning(f'The operation requires over 75% ({est_mem}) of available memory')
+
     if isinstance(relation, pd.DataFrame):
         relation_pairs = dict(relation.values)
 
@@ -158,3 +177,22 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
     )
     return result
 
+
+def _estimate_mem_cost_cartesian(a: pd.DataFrame, b: pd.DataFrame) -> int:
+    """
+    Return the estimated memory usage (in MiB) of the Cartesian join
+    of the two single-column DataFrames ``a`` and ``b``.
+    The calculation uses deep memory measurement and includes the indices.
+
+    :param a: A single-column DataFrame
+    :param b: A single-column DataFrame
+    :return: Estimated memory needed (in MiB)
+    """
+    cost_a = a.memory_usage(index=True, deep=True).values
+    cost_b = b.memory_usage(index=True, deep=True).values
+    cost_cols = cost_a[1] * b.shape[0] + cost_b[1] * a.shape[0]
+
+    # Indices are sometimes stored more efficiently, e.g. RangeIndex,
+    # so take the max unit cost of either index and multiply by resulting size
+    cost_idx = max(a.index.values.itemsize, b.index.values.itemsize) * a.shape[0] * b.shape[0]
+    return (cost_cols + cost_idx) / 1024**2
