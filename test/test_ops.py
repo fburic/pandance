@@ -81,6 +81,38 @@ def test_theta_join_numeric():
     assert result.compare(expected_result).empty
 
 
+def test_theta_join_relation():
+    car = pd.DataFrame.from_records(
+        [
+            ('car_a', 20),
+            ('car_b', 30),
+            ('car_c', 50)
+        ],
+        columns=['item', 'price']
+    )
+    boat = pd.DataFrame.from_records(
+       [
+           ('boat_1', 10),
+           ('boat_2', 40),
+           ('boat_3', 60)
+       ],
+        columns=['item', 'price']
+    )
+    expected_result = pd.DataFrame.from_records(
+        [
+            ('car_a', 20, 'boat_1', 10),
+            ('car_b', 30, 'boat_1', 10),
+            ('car_c', 50, 'boat_1', 10),
+            ('car_c', 50, 'boat_2', 40)
+        ],
+        columns=['item_old', 'price_old', 'item_new', 'price_new']
+    )
+    result = dance.theta_join(car, boat, on='price',
+                              relation=lambda x, y: x >= y,
+                              suffixes=('_old', '_new'))
+    assert result.compare(expected_result).empty
+
+
 def test_mem_usage():
     len_a = 100
     len_b = 10
