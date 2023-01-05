@@ -1,10 +1,13 @@
+from decimal import Decimal
 import logging
 import psutil
-from typing import Callable, Union, Optional
+from typing import Callable, Optional, Union
 
+import intervaltree as itree
+import numpy as np
 import pandas as pd
 
-__all__ = ['fuzzy_join', 'theta_join', '_estimate_mem_cost_cartesian']
+__all__ = ['fuzzy_join', 'theta_join']
 
 
 logger = logging.getLogger()
@@ -12,9 +15,189 @@ logger = logging.getLogger()
 
 def fuzzy_join(left: pd.DataFrame, right: pd.DataFrame,
                on: str = None, left_on: str = None, right_on: str = None,
-               tol: float = 1e-2,
+               tol: Union[float, Decimal] = 1e-3,
                suffixes: tuple = ('_x', '_y')) -> pd.DataFrame:
-    raise NotImplementedError
+    """
+    Perform an approximate inner join of two DataFrames, on a numerical column.
+    E.g. ``1.03 ~= 1``, given an absolute tolerance ``tol = 0.5``.
+    The tolerance is inclusive, meaning ``(a - b) <= tol`` is considered a match.
+
+    The joined DataFrame contains both numerical columns that were used in the join.
+
+    .. Warning::
+
+        The matching may misbehave if values are very large and the tolerance small,
+        due to the simple absolute tolerance test and floating point representation
+        limitations (see *Notes*).
+
+    .. Warning::
+
+        `NaN` and `Inf` values in the joining column will (silently) not yield matches,
+        as per the `IEEE 754 <https://en.wikipedia.org/wiki/NaN#Comparison_with_NaN>`_
+        standard implemented by NumPy.
+
+    .. Note::
+
+        This operation is a more efficient implementation
+        compared to the more generic `theta_join <#pandance.theta_join>`_,
+        i.e. *O(M * log2(M) + N * log2(M)*) time,
+        where *M* is the length of the longest of the two DataFrames,
+        and *N* of the other, instead of *O(N * M)* .
+
+    :param left: The left-hand side Pandas DataFrame
+    :param right: The right-hand side Pandas DataFrame
+    :param on: (Single) numerical column name to join on
+    :param left_on: (Single) numerical column name to join on in the left DataFrame
+    :param right_on: (Single) numerical column name to join on in the right DataFrame
+    :param tol: Numerical tolerance for the fuzzy matching.
+    :param suffixes: A length-2 sequence where each element is optionally
+        a string indicating the suffix to add to overlapping column names
+        in left and right respectively
+    :return: The fuzzy join of the two DataFrames.
+
+    Example
+    -------
+
+    Given two datasets recording the observation times (0..1) of events,
+    perform a fuzzy join on the time column,
+    to get only the events that occur at approximately the same time between sets::
+
+      df_a:                               df_b:
+
+          | event    |  time_obs   |          | event    |  time_obs   |
+          |----------|-------------|          |----------|-------------|
+          | event1   | 0.2         |          | event5   | 0.1         |
+          | event2   | 0.5         |          | event6   | 0.54        |
+          | event3   | 0.7         |          | event7   | 0.8         |
+          | event4   | 0.9         |          | event9   | 0.89        |
+
+    The operation::
+
+        fuzzy_join(df_a, df_b, on='time_obs', tol=0.05, suffixes=('_a', '_b'))
+
+    gives::
+
+        | event_a  |  time_obs_a | event_b  | time_obs_b |
+        |----------|-------------|----------|------------|
+        | event2   | 0.5         | event6   | 0.54       |
+        | event4   | 0.9         | event9   | 0.89       |
+
+
+    Notes
+    -----
+
+    **High-precision applications**
+
+    Care must be taken if high precision (low tolerances) are to be used with
+    large floating point numbers, due to representation limitations.
+
+    As a workaround, consider using arbitrary precision data types, such as the
+    Python built-in `Decimal <https://docs.python.org/3/library/decimal.html>`_ type,
+    accepting the performance penalty.
+    The join columns can be converted to ``Decimal`` just before the fuzzy join operation::
+
+        from decimal import Decimal
+        import pandance as dance
+
+        df_a['val'] = df_a['val'].map(lambda x: Decimal(x))
+        df_b['val'] = df_b['val'].map(lambda x: Decimal(x))
+
+        dance.fuzzy_join(df_b, df_a, on='val', tol=Decimal(1e-10))
+
+    See the ``decimal`` documentation on setting the precision (number of decimals)
+    to be used for results of operations with Decimals.
+
+    A more widespread practice is to adjust float comparisons with
+    an additional relative tolerance,
+    but there is no straightforward way to do this for this join operation,
+    since we're (conceptually) symmetrically comparing everything with everything
+    in the left and right join columns.
+    `Comparisons with relative tolerance <https://docs.python.org/3/library/math.html#math.isclose>`_
+    factor in both numbers to be compared.
+    For more technical details on the issue, see this
+    `post <https://randomascii.wordpress.com/2012/02/25/comparing-floating-point-numbers-2012-edition/>`_.
+    """
+    if left.shape[0] == 0 or right.shape[0] == 0:
+        return pd.DataFrame()
+
+    if on is None and left_on is None and right_on is None:
+        raise KeyError('Column to join on must be specified '
+                       '(via "on" or "left_on" and "right_on").')
+    left_on = on if not None else left_on
+    right_on = on if not None else right_on
+    if isinstance(left_on, list) or isinstance(left_on, tuple):
+        raise KeyError('Fuzzy join only supports joining on a single column.')
+
+    # REFACTOR: Separate check for left, right
+    supported_dtypes = ['i', 'u', 'f']
+    if (left[left_on].dtype.kind not in supported_dtypes
+        or right[right_on].dtype.kind not in supported_dtypes):
+        if not isinstance(left[left_on].values[0], Decimal):
+            raise TypeError(f'Operation only supports joining on columns '
+                            f'of NumPy types: {supported_dtypes}')
+
+    if left.shape[0] <= right.shape[0]:
+        shorter_col, longer_col = left_on, right_on
+        shorter_df, longer_df = left, right
+    else:
+        longer_col, shorter_col = left_on, right_on
+        longer_df, shorter_df = left, right
+
+    epsilon = np.finfo(np.float32).eps
+    if isinstance(left[left_on].values[0], Decimal):
+        tol = Decimal(tol)
+        epsilon = Decimal(epsilon.item())
+    interval_tree = _build_interval_tree(longer_df[[longer_col]], tol, epsilon)
+
+    # Record matches as separate lists since indices may be of different types
+    index_assoc_short = []
+    index_assoc_long = []
+    for idx, val_series in shorter_df[[shorter_col]].iterrows():
+        val = val_series.values[0]
+        if _is_valid_value(val):
+            for m_interval in interval_tree[val]:
+                index_assoc_short.append(idx)
+                index_assoc_long.append(m_interval.data)
+
+    # Merge on new index to match order of associated left-right indices
+    rows_short = shorter_df.loc[index_assoc_short].reset_index(drop=True)
+    rows_long = longer_df.loc[index_assoc_long].reset_index(drop=True)
+    join_result = pd.merge(
+        rows_short, rows_long,
+        left_index=True, right_index=True, suffixes=suffixes
+    )
+    return join_result
+
+
+def _build_interval_tree(col_df: pd.DataFrame,
+                         interval_radius: float,
+                         epsilon: float = np.finfo(np.float32).eps) -> itree.IntervalTree:
+    """
+    Build a self-balancing interval tree from the single-column DataFrame `col_df`,
+    with intervals constructed as ``[x - interval_radius, x + interval_radius + epsilon)``,
+    for all x in `col_df`.
+    The `epsilon` is added to make the interval inclusive
+    (IntervalTree doesn't have the option), in order to avoid asymmetries in the
+    join operation (e.g. ``fuzzy_join(1, 2, tol=1)`` gives 1 falling in ``[1, 3)``
+    but ``fuzzy_join(2, 1, tol=1)`` has 2 not falling in ``[0, 2)``).
+
+    :param col_df: DataFrame with single numerical column
+    :param interval_radius: How wide the intervals around values should be
+    """
+    vals_larger_intervals = itree.IntervalTree()
+    for idx, val_series in col_df.iterrows():
+        val = val_series.values[0]
+        if _is_valid_value(val):
+            vals_larger_intervals.addi(val - interval_radius,
+                                       val + interval_radius + epsilon,
+                                       data=idx)
+    return vals_larger_intervals
+
+
+def _is_valid_value(val: Union[np.floating, float, Decimal]) -> bool:
+    """Non-finite values (NaNs and Inf) are not valid"""
+    return ((isinstance(val, Decimal) and val.is_finite())
+            or (isinstance(val, np.floating)) and np.isfinite(val))
 
 
 def theta_join(left: pd.DataFrame, right: pd.DataFrame,
@@ -40,7 +223,7 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
         where reflexivity (*x < x*) doesn't hold.
         So the user must specify reflexivity in the given ``relation`` themselves.
 
-    The ``fuzzy_join()`` operation is a special case where
+    The `fuzzy_join <#pandance.fuzzy_join>`_ operation is a special case where
     `theta` = `approximately_equal`, offered as a separate function
     since it can be implemented more efficiently.
 

@@ -1,12 +1,83 @@
 # Unit tests for Pandance DataFrame operations
+from decimal import getcontext, Decimal
 import numpy as np
 import pandas as pd
+
+from hypothesis import given, seed, strategies as st
+import hypothesis.extra.numpy as hnp
 
 import pandance as dance
 
 
-def test_fuzzy_join():
-    pass
+def test_fuzzy_join_simple():
+    df_a = pd.DataFrame([
+        ('event1', 0.2),
+        ('event2', 0.5),
+        ('event3', 0.7),
+        ('event4', 0.9)
+    ], columns=['event', 'time_obs'])
+
+    df_b = pd.DataFrame([
+        ('event5', 0.1),
+        ('event8', 0.89),
+        ('event7', 0.8),
+        ('event6', 0.54)
+        ],
+        columns=['event', 'time_obs'],
+        index=list('abcd')
+    )
+
+    expected_result = pd.DataFrame([
+        ('event2', 0.5, 'event6', 0.54),
+        ('event4', 0.9, 'event8', 0.89)
+    ], columns=['event_x', 'time_obs_x', 'event_y', 'time_obs_y'])
+
+    theta_result = dance.theta_join(df_a, df_b, on='time_obs',
+                                    relation=lambda x, y: abs(x-y) <= 0.05)
+    theta_result_none = dance.theta_join(df_a, df_b, on='time_obs',
+                                         relation=lambda x, y: abs(x-y) <= 0.01)
+
+    fuzzy_result = dance.fuzzy_join(df_a, df_b, on='time_obs', tol=0.05)
+    fuzzy_result_none = dance.fuzzy_join(df_a, df_b, on='time_obs', tol=0.001)
+
+    assert fuzzy_result.compare(expected_result).empty
+    assert fuzzy_result.compare(theta_result).empty
+    assert fuzzy_result_none.shape[0] == 0
+    assert theta_result_none.shape[0] == 0
+
+
+@given(
+    values_a=hnp.arrays(np.float32, shape=(st.integers(1, 10))),
+    tolerance=st.floats(min_value=np.finfo(np.float32).resolution, max_value=1),
+)
+@seed(42)
+def test_fuzzy_join_safe(values_a, tolerance):
+    """
+    Safer test for mathematical correctness:
+    Convert all values to Decimal to avoid float representation limitations
+    """
+    getcontext().prec = 128  # Very high precision
+    df_a = pd.DataFrame(values_a, columns=['val']).reset_index()
+    df_a['val'] = df_a['val'].map(lambda x: Decimal(x))
+
+    # B values are obtained from A with deviations within tolerance
+    df_b = pd.DataFrame(values_a, columns=['val']).reset_index()
+    df_b['val'] = df_b['val'].map(lambda x: Decimal(x))
+    tolerance = Decimal(tolerance)
+    epsilon = Decimal(np.finfo(np.float32).eps.item())
+    df_b['val'] = df_b['val'] + tolerance - epsilon
+
+    fuzzy_result = dance.fuzzy_join(df_a, df_b, on='val', tol=tolerance)
+
+    if np.isfinite(values_a).sum() == 0:
+        assert fuzzy_result.shape[0] ==0
+
+    else:
+        result_row_correct = fuzzy_result.apply(
+            lambda row: abs(row['val_x'] - row['val_y']) <= tolerance,
+            axis='columns'
+        )
+        assert result_row_correct.all()
 
 
 def test_theta_join_categorical():

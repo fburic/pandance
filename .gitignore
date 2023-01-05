@@ -5,3 +5,4 @@ doc/_build/**
 **/*.egg-info
 **/__pycache__
 **/.ipynb_checkpoints
+**/.hypothesis
