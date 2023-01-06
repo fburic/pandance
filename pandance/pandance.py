@@ -7,7 +7,7 @@ import intervaltree as itree
 import numpy as np
 import pandas as pd
 
-__all__ = ['fuzzy_join', 'theta_join']
+__all__ = ['fuzzy_join', 'theta_join', '_estimate_mem_cost_cartesian']
 
 
 logger = logging.getLogger()
@@ -337,26 +337,25 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
                 return relation_pairs[a] == b
 
     # Cartesian join
-    result = pd.merge(left[[left_on]], right[[right_on]], how='cross')
-    result = result.rename(
-        columns={c: i for i, c in enumerate(list(result.columns))}
-    )
+    result = pd.merge(left[[left_on]].reset_index(),
+                      right[[right_on]].reset_index(),
+                      how='cross',
+                      suffixes=suffixes)
 
     # Filter on theta
     result = result[
         result.apply(
-            lambda row: relation(row[0], row[1]),
+            lambda row: relation(row[left_on + suffixes[0]],
+                                 row[right_on + suffixes[1]]),
             axis='columns'
         )
     ]
 
     # Get other column items from input DataFrames
-    result = (
-        pd.merge(left, result, left_on=left_on, right_on=0)
-        .merge(right,
-               left_on=1, right_on=right_on, suffixes=suffixes)
-    ).drop(
-        columns=[0, 1]
+    result = pd.merge(
+        left.loc[result['index' + suffixes[0]]].reset_index(drop=True),
+        right.loc[result['index' + suffixes[1]]].reset_index(drop=True),
+        left_index=True, right_index=True, suffixes=suffixes
     )
     return result
 
