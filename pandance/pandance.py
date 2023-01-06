@@ -118,7 +118,7 @@ def fuzzy_join(left: pd.DataFrame, right: pd.DataFrame,
     `post <https://randomascii.wordpress.com/2012/02/25/comparing-floating-point-numbers-2012-edition/>`_.
     """
     if left.shape[0] == 0 or right.shape[0] == 0:
-        return pd.DataFrame()
+        return pd.DataFrame([], columns=[left_on + suffixes[0], right_on + suffixes[1]])
 
     if on is None and left_on is None and right_on is None:
         raise KeyError('Column to join on must be specified '
@@ -149,10 +149,13 @@ def fuzzy_join(left: pd.DataFrame, right: pd.DataFrame,
         epsilon = Decimal(epsilon.item())
     interval_tree = _build_interval_tree(longer_df[[longer_col]], tol, epsilon)
 
-    # Record matches as separate lists since indices may be of different types
-    index_assoc_short, index_assoc_long = _get_fuzzy_match_indices(interval_tree,
-                                                                   shorter_df,
-                                                                   shorter_col)
+    index_association = _get_fuzzy_match_indices(shorter_df[[shorter_col]], interval_tree)
+    if not index_association:
+        return pd.DataFrame([], columns=[left_on + suffixes[0], right_on + suffixes[1]])
+
+    index_assoc_short, index_assoc_long = zip(*index_association)
+    index_assoc_short = list(index_assoc_short)
+    index_assoc_long = list(index_assoc_long)
 
     # Merge on new index to match order of associated left-right indices
     rows_short = shorter_df.loc[index_assoc_short].reset_index(drop=True)
@@ -180,12 +183,14 @@ def _build_interval_tree(col_df: pd.DataFrame,
     :param interval_radius: How wide the intervals around values should be
     """
     interval_tree = itree.IntervalTree()
-    for idx, val_series in col_df.iterrows():
-        val = val_series.values[0]
-        if _is_valid_value(val):
-            interval_tree.addi(val - interval_radius,
-                               val + interval_radius + epsilon,
-                               data=idx)
+    colname = col_df.columns[0]
+    col_df.apply(
+        lambda row: interval_tree.addi(row[colname] - interval_radius,
+                                       row[colname] + interval_radius + epsilon,
+                                       data=row.name) if _is_valid_value(row[colname]) else None,
+        axis='columns'
+    )
+
     # Identical intervals are removed and their indices are merged into a list
     interval_tree.merge_equals(
         data_reducer=lambda idx_x, idx_y: [idx_y] if idx_x is None else idx_x + [idx_y],
@@ -194,19 +199,26 @@ def _build_interval_tree(col_df: pd.DataFrame,
     return interval_tree
 
 
-def _get_fuzzy_match_indices(interval_tree: itree.IntervalTree,
-                             shorter_df: pd.DataFrame,
-                             shorter_col: str) -> tuple:
-    index_assoc_short, index_assoc_long = [], []
-    for idx, val_series in shorter_df[[shorter_col]].iterrows():
-        val = val_series.values[0]
-        if _is_valid_value(val):
-            for m_interval in interval_tree[val]:
-                m_idx = m_interval.data
-                for i in m_idx:
-                    index_assoc_short.append(idx)
-                    index_assoc_long.append(i)
-    return index_assoc_short, index_assoc_long
+def _get_fuzzy_match_indices(df_col: pd.DataFrame,
+                             interval_tree: itree.IntervalTree) -> list:
+    index_assoc = []
+    colname = df_col.columns[0]
+    df_col.apply(
+        lambda row: [index_assoc.append(match)
+                     for match in _matching_indices_for_value(row[colname],
+                                                              row.name,
+                                                              interval_tree)],
+        axis='columns'
+    )
+    return index_assoc
+
+
+def _matching_indices_for_value(val, val_idx, interval_tree: itree.IntervalTree):
+    if _is_valid_value(val):
+        for m_interval in interval_tree[val]:
+            m_idx = m_interval.data
+            for i in m_idx:
+                yield val_idx, i
 
 
 def _is_valid_value(val: Union[np.floating, float, Decimal]) -> bool:
