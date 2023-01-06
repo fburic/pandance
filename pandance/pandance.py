@@ -1,4 +1,4 @@
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 import logging
 import psutil
 from typing import Callable, Optional, Union
@@ -343,10 +343,17 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
                       suffixes=suffixes)
 
     # Filter on theta
+    def _safe_relation(x, y) -> bool:
+        """Guard against known exceptions"""
+        try:
+            return relation(x, y)
+        except InvalidOperation:
+            return False
+
     result = result[
         result.apply(
-            lambda row: relation(row[left_on + suffixes[0]],
-                                 row[right_on + suffixes[1]]),
+            lambda row: _safe_relation(row[left_on + suffixes[0]],
+                                       row[right_on + suffixes[1]]),
             axis='columns'
         )
     ]
