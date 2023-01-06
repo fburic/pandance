@@ -39,10 +39,10 @@ def fuzzy_join(left: pd.DataFrame, right: pd.DataFrame,
     .. Note::
 
         This operation is a more efficient implementation
-        compared to the more generic `theta_join <#pandance.theta_join>`_,
-        i.e. *O(M * log2(M) + N * log2(M)*) time,
+        compared to the generic `theta_join <#pandance.theta_join>`_,
+        taking *O((N+M) log2 M)* time,
         where *M* is the length of the longest of the two DataFrames,
-        and *N* of the other, instead of *O(N * M)* .
+        and *N* of the other, instead of *O(N*M)*.
 
     :param left: The left-hand side Pandas DataFrame
     :param right: The right-hand side Pandas DataFrame
@@ -150,14 +150,9 @@ def fuzzy_join(left: pd.DataFrame, right: pd.DataFrame,
     interval_tree = _build_interval_tree(longer_df[[longer_col]], tol, epsilon)
 
     # Record matches as separate lists since indices may be of different types
-    index_assoc_short = []
-    index_assoc_long = []
-    for idx, val_series in shorter_df[[shorter_col]].iterrows():
-        val = val_series.values[0]
-        if _is_valid_value(val):
-            for m_interval in interval_tree[val]:
-                index_assoc_short.append(idx)
-                index_assoc_long.append(m_interval.data)
+    index_assoc_short, index_assoc_long = _get_fuzzy_match_indices(interval_tree,
+                                                                   shorter_df,
+                                                                   shorter_col)
 
     # Merge on new index to match order of associated left-right indices
     rows_short = shorter_df.loc[index_assoc_short].reset_index(drop=True)
@@ -184,14 +179,34 @@ def _build_interval_tree(col_df: pd.DataFrame,
     :param col_df: DataFrame with single numerical column
     :param interval_radius: How wide the intervals around values should be
     """
-    vals_larger_intervals = itree.IntervalTree()
+    interval_tree = itree.IntervalTree()
     for idx, val_series in col_df.iterrows():
         val = val_series.values[0]
         if _is_valid_value(val):
-            vals_larger_intervals.addi(val - interval_radius,
-                                       val + interval_radius + epsilon,
-                                       data=idx)
-    return vals_larger_intervals
+            interval_tree.addi(val - interval_radius,
+                               val + interval_radius + epsilon,
+                               data=idx)
+    # Identical intervals are removed and their indices are merged into a list
+    interval_tree.merge_equals(
+        data_reducer=lambda idx_x, idx_y: [idx_y] if idx_x is None else idx_x + [idx_y],
+        data_initializer=[]
+    )
+    return interval_tree
+
+
+def _get_fuzzy_match_indices(interval_tree: itree.IntervalTree,
+                             shorter_df: pd.DataFrame,
+                             shorter_col: str) -> tuple:
+    index_assoc_short, index_assoc_long = [], []
+    for idx, val_series in shorter_df[[shorter_col]].iterrows():
+        val = val_series.values[0]
+        if _is_valid_value(val):
+            for m_interval in interval_tree[val]:
+                m_idx = m_interval.data
+                for i in m_idx:
+                    index_assoc_short.append(idx)
+                    index_assoc_long.append(i)
+    return index_assoc_short, index_assoc_long
 
 
 def _is_valid_value(val: Union[np.floating, float, Decimal]) -> bool:

@@ -70,7 +70,7 @@ def test_fuzzy_join_safe(values_a, tolerance):
     fuzzy_result = dance.fuzzy_join(df_a, df_b, on='val', tol=tolerance)
 
     if np.isfinite(values_a).sum() == 0:
-        assert fuzzy_result.shape[0] ==0
+        assert fuzzy_result.shape[0] == 0
 
     else:
         result_row_correct = fuzzy_result.apply(
@@ -78,6 +78,15 @@ def test_fuzzy_join_safe(values_a, tolerance):
             axis='columns'
         )
         assert result_row_correct.all()
+
+        theta_result = dance.theta_join(df_a, df_b, on='val',
+                                        relation=lambda x, y: abs(x - y) <= tolerance)
+        # Make DFs comparable
+        fuzzy_result = (fuzzy_result.sort_values(['index_x', 'index_y'])
+                        .reset_index(drop=True))
+        theta_result = (theta_result.sort_values(['index_x', 'index_y'])
+                        .reset_index(drop=True))
+        assert fuzzy_result.compare(theta_result).empty
 
 
 def test_theta_join_categorical():
