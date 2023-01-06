@@ -117,9 +117,6 @@ def fuzzy_join(left: pd.DataFrame, right: pd.DataFrame,
     For more technical details on the issue, see this
     `post <https://randomascii.wordpress.com/2012/02/25/comparing-floating-point-numbers-2012-edition/>`_.
     """
-    if left.shape[0] == 0 or right.shape[0] == 0:
-        return pd.DataFrame([], columns=[left_on + suffixes[0], right_on + suffixes[1]])
-
     if on is None and left_on is None and right_on is None:
         raise KeyError('Column to join on must be specified '
                        '(via "on" or "left_on" and "right_on").')
@@ -128,13 +125,9 @@ def fuzzy_join(left: pd.DataFrame, right: pd.DataFrame,
     if isinstance(left_on, list) or isinstance(left_on, tuple):
         raise KeyError('Fuzzy join only supports joining on a single column.')
 
-    # REFACTOR: Separate check for left, right
-    supported_dtypes = ['i', 'u', 'f']
-    if (left[left_on].dtype.kind not in supported_dtypes
-        or right[right_on].dtype.kind not in supported_dtypes):
-        if not isinstance(left[left_on].values[0], Decimal):
-            raise TypeError(f'Operation only supports joining on columns '
-                            f'of NumPy types: {supported_dtypes}')
+    left, right = _def_validate_and_clean_inputs_to_fuzzy(left, right, left_on, right_on)
+    if left.shape[0] == 0 or right.shape[0] == 0:
+        return pd.DataFrame([], columns=[left_on + suffixes[0], right_on + suffixes[1]])
 
     if left.shape[0] <= right.shape[0]:
         shorter_col, longer_col = left_on, right_on
@@ -187,7 +180,7 @@ def _build_interval_tree(col_df: pd.DataFrame,
     col_df.apply(
         lambda row: interval_tree.addi(row[colname] - interval_radius,
                                        row[colname] + interval_radius + epsilon,
-                                       data=row.name) if _is_valid_value(row[colname]) else None,
+                                       data=row.name),
         axis='columns'
     )
 
@@ -214,17 +207,48 @@ def _get_fuzzy_match_indices(df_col: pd.DataFrame,
 
 
 def _matching_indices_for_value(val, val_idx, interval_tree: itree.IntervalTree):
-    if _is_valid_value(val):
-        for m_interval in interval_tree[val]:
-            m_idx = m_interval.data
-            for i in m_idx:
-                yield val_idx, i
+    # if _is_valid_value(val):
+    for m_interval in interval_tree[val]:
+        m_idx = m_interval.data
+        for i in m_idx:
+            yield val_idx, i
+
+
+def _def_validate_and_clean_inputs_to_fuzzy(left: pd.DataFrame,
+                                            right: pd.DataFrame,
+                                            left_on: str,
+                                            right_on: str) -> tuple:
+    supported_dtypes = ['i', 'u', 'f']
+    exception_msg = f'Operation only supports joining on columns ' \
+                    f'of NumPy types: {supported_dtypes} or decimal.Decimal'
+
+    if left[left_on].dtype.kind not in supported_dtypes:
+        if left.shape[0] > 0:
+            if not isinstance(left[left_on].values[0], Decimal):
+                raise TypeError('Left DataFrame invalid: ' + exception_msg)
+
+    if right[right_on].dtype.kind not in supported_dtypes:
+        if right.shape[0] > 0:
+            if not isinstance(right[right_on].values[0], Decimal):
+                raise TypeError('Right DataFrame invalid: ' + exception_msg)
+
+    left = left[left[left_on].map(_is_valid_value)]
+    right = right[right[right_on].map(_is_valid_value)]
+    return left, right
 
 
 def _is_valid_value(val: Union[np.floating, float, Decimal]) -> bool:
     """Non-finite values (NaNs and Inf) are not valid"""
-    return ((isinstance(val, Decimal) and val.is_finite())
-            or (isinstance(val, np.floating)) and np.isfinite(val))
+    if (isinstance(val, np.floating)
+            or isinstance(val, np.integer)
+            or isinstance(val, np.unsignedinteger)):
+        return np.isfinite(val)
+
+    elif isinstance(val, Decimal):
+        return val.is_finite()
+
+    else:
+        return True
 
 
 def theta_join(left: pd.DataFrame, right: pd.DataFrame,
