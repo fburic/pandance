@@ -66,4 +66,4 @@ def profile_function(func):
 
 
 if __name__ == '__main__':
-    main()
+    fuzzy_speed_random()
