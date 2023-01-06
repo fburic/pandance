@@ -145,14 +145,11 @@ def fuzzy_join(left: pd.DataFrame, right: pd.DataFrame,
     index_association = _get_fuzzy_match_indices(shorter_df[[shorter_col]], interval_tree)
     if not index_association:
         return pd.DataFrame([], columns=[left_on + suffixes[0], right_on + suffixes[1]])
-
     index_assoc_short, index_assoc_long = zip(*index_association)
-    index_assoc_short = list(index_assoc_short)
-    index_assoc_long = list(index_assoc_long)
 
     # Merge on new index to match order of associated left-right indices
-    rows_short = shorter_df.loc[index_assoc_short].reset_index(drop=True)
-    rows_long = longer_df.loc[index_assoc_long].reset_index(drop=True)
+    rows_short = shorter_df.loc[(i for i in index_assoc_short)].reset_index(drop=True)
+    rows_long = longer_df.loc[(i for i in index_assoc_long)].reset_index(drop=True)
     join_result = pd.merge(
         rows_short, rows_long,
         left_index=True, right_index=True, suffixes=suffixes
