@@ -120,7 +120,7 @@ def fuzzy_join(left: pd.DataFrame, right: pd.DataFrame,
     left_on, right_on = _validate_input_columns(on, left_on, right_on)
     left, right = _def_validate_and_clean_inputs_to_fuzzy(left, right, left_on, right_on)
     if left.shape[0] == 0 or right.shape[0] == 0:
-        return pd.DataFrame([], columns=[left_on + suffixes[0], right_on + suffixes[1]])
+        return _empty_df(left_on, right_on, suffixes)
 
     if left.shape[0] <= right.shape[0]:
         shorter_col, longer_col = left_on, right_on
@@ -137,7 +137,7 @@ def fuzzy_join(left: pd.DataFrame, right: pd.DataFrame,
 
     index_association = _get_fuzzy_match_indices(shorter_df[[shorter_col]], interval_tree)
     if not index_association:
-        return pd.DataFrame([], columns=[left_on + suffixes[0], right_on + suffixes[1]])
+        return _empty_df(left_on, right_on, suffixes)
     index_assoc_short, index_assoc_long = zip(*index_association)
 
     # Merge on new index to match order of associated left-right indices
@@ -239,6 +239,12 @@ def _is_valid_value(val: Union[np.floating, float, Decimal]) -> bool:
 
     else:
         return True
+
+
+def _empty_df(left_on, right_on, suffixes):
+    if left_on == right_on:
+        left_on, right_on = left_on + suffixes[0], right_on + suffixes[1]
+    return pd.DataFrame([], columns=[left_on, right_on])
 
 
 def theta_join(left: pd.DataFrame, right: pd.DataFrame,
