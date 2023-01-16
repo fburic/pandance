@@ -158,6 +158,23 @@ def test_theta_join_relation():
     assert result.compare(expected_result).empty
 
 
+def test_theta_join_strings():
+    keywords = pd.DataFrame(['a', 'the', 'xyzzy'], columns=['keyword'])
+    phrases = pd.DataFrame([
+        'the quick brown fox jumps over the lazy dog',
+        'lorem ipsum dolor'
+    ], columns=['phrase'])
+    expected_hits = pd.DataFrame([
+        ('a', 'the quick brown fox jumps over the lazy dog'),
+        ('the', 'the quick brown fox jumps over the lazy dog')
+    ], columns=['keyword', 'phrase'])
+    hits = dance.theta_join(
+        keywords, phrases, left_on='keyword', right_on='phrase',
+        relation=lambda kw, phrase: kw in phrase
+    )
+    assert hits.compare(expected_hits).empty
+
+
 def test_mem_usage():
     len_a = 100
     len_b = 10

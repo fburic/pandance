@@ -296,31 +296,91 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
             It's offered as a separate function since it can be implemented more efficiently.
             Consider using it if you're matching numerical values with a tolerance.
 
-    Notes
-    -----
-
-    Because this operation accepts arbitrary relations,
-    *reflexivity (i.e. x R x, for all x) is not guaranteed*.
-    A simple example is the "<" relation,
-    where reflexivity (*x < x*) doesn't hold.
-    So the user must take care to satisfy reflexivity in the given ``relation``,
-    if it's expected.
-
     Examples
     --------
 
-    We have two tables with numerical entries,
-    and we want to match those numbers that are equal modulo 64
-    (i.e. have the same remainder when dividing by 64).::
+    **Numerical relation**
 
-        def mod_64(x: int, y: int) -> bool:
-            return x % 64 == y % 64 == 0
+    We have two tables with numerical entries x and y,
+    and we want to find those combinations of x and y that
+    represent coordinates on the unit circle.
 
-        theta_join(
-            number_set_a, number_set_b,
-            relation = mod_64,
-            on = 'numeric_value'
-        )
+    >>> import pandas as pd
+    >>> import pandance as dance
+    >>> horiz_vals = pd.DataFrame([0, 1, -1, 0.5], columns=['x'])
+    >>> vert_vals = pd.DataFrame([0, 1, -1, 0.5], columns=['y'])
+
+    Here
+
+    .. math:: \\theta (x, y): x^2 + y^2 - 1 = 0
+
+    >>> import math
+    >>> circle_coords = dance.theta_join(
+    ...     horiz_vals, vert_vals, left_on='x', right_on='y',
+    ...     relation = lambda x, y: math.isclose(x**2 + y**2 - 1, 0))
+         x    y
+    0  0.0  1.0
+    1  0.0 -1.0
+    2  1.0  0.0
+    3 -1.0  0.0
+
+
+    **Substring matching**
+
+    We have two tables of character strings and want to find all pairs in which
+    strings from the left join coliumn appear as substrings of the right.
+
+    >>> import pandas as pd
+    >>> import pandance as dance
+    >>> keywords = pd.DataFrame(['a', 'the', 'xyzzy'], columns=['keyword'])
+    >>> phrases = pd.DataFrame([
+    ...     'the quick brown fox jumps over the lazy dog',
+    ...     'lorem ipsum dolor'
+    ... ], columns=['phrase'])
+
+    Here `θ(a, b): a substring of b`.
+
+    >>> hits = dance.theta_join(
+    ...     keywords, phrases, left_on='keyword', right_on='phrase',
+    ...     relation = lambda kw, phrase: kw in phrase)
+    >>> hits
+     keyword                                       phrase
+    0       a  the quick brown fox jumps over the lazy dog
+    1     the  the quick brown fox jumps over the lazy dog
+
+
+    **Inequality relation**
+
+    We're making a groceries list, and we're balancing macronutrients and costs.
+
+    >>> import pandas as pd
+    >>> import pandance as dance
+    >>> carb_sources = pd.DataFrame([
+    ...     ('rice', 34),
+    ...     ('oat flakes', 32)
+    ... ], columns=['item', 'price'])
+    >>> protein_sources = pd.DataFrame([
+    ...     ('lentils', 25),
+    ...     ('chickpeas', 38),
+    ...     ('soy beans', 48)
+    ... ], columns=['item', 'price'])
+
+    We want to stock up on a single carb and protein source,
+    but we *want the carbs to cost less than the proteins*.
+    This can be expressed as the θ-join below, where
+
+    .. math:: \\theta (x, y): x < y
+
+    >>> possible_shopping_combos = dance.theta_join(
+    ...     carb_sources, protein_sources, on='price',
+    ...     relation = lambda price_carb, price_prot: price_carb < price_prot,
+    ...     suffixes=('_carb', '_prot'))
+    >>> possible_shopping_combos
+        item_carb  price_carb  item_prot  price_prot
+    0        rice          34  chickpeas          38
+    1        rice          34  soy beans          48
+    2  oat flakes          32  chickpeas          38
+    3  oat flakes          32  soy beans          48
     """
     left_on, right_on = _validate_input_columns(on, left_on, right_on)
 
