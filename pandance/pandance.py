@@ -117,8 +117,7 @@ def fuzzy_join(left: pd.DataFrame, right: pd.DataFrame,
     For more technical details on the issue, see this
     `post <https://randomascii.wordpress.com/2012/02/25/comparing-floating-point-numbers-2012-edition/>`_.
     """
-    left_on, right_on =_validate_input_columns(on, left_on, right_on)
-
+    left_on, right_on = _validate_input_columns(on, left_on, right_on)
     left, right = _def_validate_and_clean_inputs_to_fuzzy(left, right, left_on, right_on)
     if left.shape[0] == 0 or right.shape[0] == 0:
         return pd.DataFrame([], columns=[left_on + suffixes[0], right_on + suffixes[1]])
@@ -348,10 +347,11 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
             return False
 
     # Filter on theta
+    if left_on == right_on:
+        left_on, right_on = left_on + suffixes[0], right_on + suffixes[1]
     result = result[
         result.apply(
-            lambda row: _safe_relation(row[left_on + suffixes[0]],
-                                       row[right_on + suffixes[1]]),
+            lambda row: _safe_relation(row[left_on], row[right_on]),
             axis='columns'
         )
     ]
