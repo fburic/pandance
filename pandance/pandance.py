@@ -323,7 +323,7 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
             on = 'numeric_value'
         )
     """
-    left_on, right_on =_validate_input_columns(on, left_on, right_on)
+    left_on, right_on = _validate_input_columns(on, left_on, right_on)
 
     est_mem = _estimate_mem_cost_cartesian(left[[left_on]], right[[right_on]])
     avail_mem = psutil.virtual_memory()
@@ -389,8 +389,8 @@ def _validate_input_columns(on, left_on, right_on) -> tuple:
     if on is None and left_on is None and right_on is None:
         raise KeyError('Column to join on must be specified '
                        '(via "on" or "left_on" and "right_on").')
-    left_on = on if not None else left_on
-    right_on = on if not None else right_on
+    left_on = on if on is not None else left_on
+    right_on = on if on is not None else right_on
     if isinstance(left_on, list) or isinstance(left_on, tuple):
         raise KeyError('Pandance operation only supports joining on a single column.')
     return left_on, right_on
