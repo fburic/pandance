@@ -1,5 +1,6 @@
 # Unit tests for Pandance DataFrame operations
 from decimal import getcontext, Decimal
+import math
 import numpy as np
 import pandas as pd
 
@@ -173,6 +174,22 @@ def test_theta_join_strings():
         relation=lambda kw, phrase: kw in phrase
     )
     assert hits.compare(expected_hits).empty
+
+
+@given(
+    angle=hnp.arrays(np.float32, shape=5,
+                     elements=st.floats(width=32, allow_subnormal=True,
+                                        allow_nan=True, allow_infinity=False))
+)
+@seed(42)
+def test_theta_join_circle(angle):
+    x = pd.DataFrame(np.cos(angle), columns=['x'])
+    y = pd.DataFrame(np.sin(angle), columns=['y'])
+
+    result = dance.theta_join(x, y, left_on='x', right_on='y',
+                              relation=lambda x, y: math.isclose(x**2 + y**2 - 1, 0))
+    vals = result.values
+    assert np.allclose(np.power(vals[:, 0], 2) + np.power(vals[:, 1], 2) - 1, 0)
 
 
 def test_mem_usage():
