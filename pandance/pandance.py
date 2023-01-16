@@ -24,19 +24,19 @@ def fuzzy_join(left: pd.DataFrame, right: pd.DataFrame,
 
     The joined DataFrame contains both numerical columns that were used in the join.
 
-    .. Warning::
+    .. warning::
 
         The matching may misbehave if values are very large and the tolerance small,
         due to the simple absolute tolerance test and floating point representation
         limitations (see *Notes*).
 
-    .. Warning::
+    .. warning::
 
         `NaN` and `Inf` values in the joining column will (silently) not yield matches,
         as per the `IEEE 754 <https://en.wikipedia.org/wiki/NaN#Comparison_with_NaN>`_
         standard implemented by NumPy.
 
-    .. Note::
+    .. note::
 
         This operation is a more efficient implementation
         compared to the generic `theta_join <#pandance.theta_join>`_,
@@ -253,29 +253,20 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
                on: str = None, left_on: str = None, right_on: str = None,
                suffixes: Optional[tuple] = ('_x', '_y')) -> pd.DataFrame:
     """
-    A *theta-join* is a join operation in which entry pairs in two columns
+    Perform an inner join with a user-specified matching ``relation``.
+
+    A *theta-join* is a join operation in which rows in the join columns
     are matched using an arbitrary
-    `relation <https://en.wikipedia.org/wiki/Binary_relation>`_ `theta`
-    that holds between these entries,
-    as a generalization of equijoins, where this relation is simply equality.
+    `relation <https://en.wikipedia.org/wiki/Binary_relation>`_  θ
+    that holds between the row entries,
+    It generalizes equijoins (where θ = equality).
     See examples below and the
     `Wikipedia article <https://en.wikipedia.org/wiki/Relational_algebra#%CE%B8-join_and_equijoin>`_,
-    though note that in Pandance `theta` isn't limited to the typical set
-    {<, <=, =, !=, >=, >}. Rather, the user may specify arbitrary relations,
-    as described below.
+    though in Pandance θ isn't limited to the typical set of relations
+    {<, <=, =, !=, >=, >}. Rather, the user may specify any boolean-valued function
+    as a ``relation``, as described below.
 
-    .. Note::
-        Because this operation accepts arbitrary relations,
-        *reflexivity (i.e. x R x, for all x) is not implemented*.
-        A simple example is the "<" relation,
-        where reflexivity (*x < x*) doesn't hold.
-        So the user must specify reflexivity in the given ``relation`` themselves.
-
-    The `fuzzy_join <#pandance.fuzzy_join>`_ operation is a special case where
-    `theta` = `approximately_equal`, offered as a separate function
-    since it can be implemented more efficiently.
-
-    .. Warning::
+    .. warning::
         This operation is **memory-intensive!**
         Since this is a generic operation for any given `theta` relation,
         it's implemented as a Cartesian product of the two ``on`` columns
@@ -287,6 +278,48 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
         A warning is logged if the estimated requirement is above 75%
         of available memory and a ``MemoryError`` is raised if the estimate exceeds
         available memory.
+
+    :param left: The left-hand side Pandas DataFrame
+    :param right: The right-hand side Pandas DataFrame
+    :param relation: a **function** of two parameters ``x``, ``y``
+        that returns ``True`` if ``x`` is in that relation with ``y``,
+        else ``False``.
+        E.g. ``divides(2, 8) == True`` or
+        ``synonymous('drink', 'beverage') == True``.
+        Alternatively, a **DataFrame** with two columns of item pairs that
+        are in the relation (the column names are irrelevant),
+        implying all other combinations are not in the relation.
+
+    :param on: (Single) column name to join on, passed to ``pandas.merge()``
+    :param left_on: (Single) column name to join on in the left DataFrame,
+        passed to ``pandas.merge()``
+    :param right_on: (Single) column name to join on in the right DataFrame,
+        passed to ``pandas.merge()``
+    :param suffixes: A length-2 sequence where each element is optionally
+        a string indicating the suffix to add to overlapping column names
+        in left and right respectively, passed to ``pandas.merge()``
+    :return: The *theta*-join of the two DataFrames.
+
+
+    .. seealso::
+
+        :py:func:`fuzzy_join`
+            A special case of θ-join, where θ = `approximately_equal`.
+            It's offered as a separate function since it can be implemented more efficiently.
+            Consider using it if you're matching numerical values with a tolerance.
+
+    Notes
+    -----
+
+    Because this operation accepts arbitrary relations,
+    *reflexivity (i.e. x R x, for all x) is not guaranteed*.
+    A simple example is the "<" relation,
+    where reflexivity (*x < x*) doesn't hold.
+    So the user must take care to satisfy reflexivity in the given ``relation``,
+    if it's expected.
+
+    Examples
+    --------
 
     **Example 1**
 
@@ -338,27 +371,6 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
             relation = mod_64,
             on = 'numeric_value'
         )
-
-    :param left: The left-hand side Pandas DataFrame
-    :param right: The right-hand side Pandas DataFrame
-    :param relation: a **function** of two parameters ``x``, ``y``
-        that returns ``True`` if ``x`` is in that relation with ``y``,
-        else ``False``.
-        E.g. ``divides(2, 8) == True`` or
-        ``synonymous('drink', 'beverage') == True``.
-        Alternatively, a **DataFrame** with two columns of item pairs that
-        are in the relation (the column names are irrelevant),
-        implying all other combinations are not in the relation.
-
-    :param on: (Single) column name to join on, passed to ``pandas.merge()``
-    :param left_on: (Single) column name to join on in the left DataFrame,
-        passed to ``pandas.merge()``
-    :param right_on: (Single) column name to join on in the right DataFrame,
-        passed to ``pandas.merge()``
-    :param suffixes: A length-2 sequence where each element is optionally
-        a string indicating the suffix to add to overlapping column names
-        in left and right respectively, passed to ``pandas.merge()``
-    :return: The *theta*-join of the two DataFrames.
     """
     left_on = on if not None else left_on
     right_on = on if not None else right_on
