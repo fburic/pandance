@@ -89,41 +89,6 @@ def test_fuzzy_join_safe(values_a, tolerance):
         assert fuzzy_result.compare(theta_result).empty
 
 
-def test_theta_join_categorical():
-    old_inventory = pd.DataFrame.from_records(
-        [('drink', 12),
-         ('sandwich', 40),
-         ('starters', 25)],
-        columns=['item', 'price']
-    )
-
-    new_inventory = pd.DataFrame.from_records(
-        [('beverage', 14),
-         ('sandwich', 45),
-         ('appetizers', 25)],
-        columns=['item', 'price']
-    )
-
-    synonymous = pd.DataFrame.from_records(
-        [('drink', 'beverage'),
-         ('sandwich', 'sandwich'),
-         ('starters', 'appetizers')],
-        columns=['old_name', 'new_name']
-    )
-
-    result = dance.theta_join(old_inventory, new_inventory, on='item',
-                              relation=synonymous)
-
-    expected_result = pd.DataFrame.from_records(
-        [('drink', 12, 'beverage', 14),
-         ('sandwich', 40, 'sandwich', 45),
-         ('starters', 25, 'appetizers', 25)
-         ],
-        columns=['item_x', 'price_x', 'item_y', 'price_y']
-    )
-    assert result.compare(expected_result).empty
-
-
 def test_theta_join_numeric():
     a = pd.DataFrame.from_records(
         [

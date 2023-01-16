@@ -249,7 +249,7 @@ def _is_valid_value(val: Union[np.floating, float, Decimal]) -> bool:
 
 
 def theta_join(left: pd.DataFrame, right: pd.DataFrame,
-               relation: Union[Callable[..., bool], pd.DataFrame],
+               relation: Callable[..., bool],
                on: str = None, left_on: str = None, right_on: str = None,
                suffixes: Optional[tuple] = ('_x', '_y')) -> pd.DataFrame:
     """
@@ -281,15 +281,10 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
 
     :param left: The left-hand side Pandas DataFrame
     :param right: The right-hand side Pandas DataFrame
-    :param relation: a **function** of two parameters ``x``, ``y``
-        that returns ``True`` if ``x`` is in that relation with ``y``,
-        else ``False``.
-        E.g. ``divides(2, 8) == True`` or
-        ``synonymous('drink', 'beverage') == True``.
-        Alternatively, a **DataFrame** with two columns of item pairs that
-        are in the relation (the column names are irrelevant),
-        implying all other combinations are not in the relation.
-
+    :param relation: a **function** or callable object
+        of two parameters ``x``, ``y`` that returns ``True``
+        if ``x`` is in that relation with ``y``, else ``False``.
+        E.g. ``divides(2, 8) == True``.
     :param on: (Single) column name to join on, passed to ``pandas.merge()``
     :param left_on: (Single) column name to join on in the left DataFrame,
         passed to ``pandas.merge()``
@@ -321,44 +316,6 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
     Examples
     --------
 
-    **Example 1**
-
-    We're merging two inventory tables which unfortunately use alternative
-    (synonymous) words for the same items.
-    E.g. "drink" in one table and "beverage" in the other.
-
-    Thus, we have the `synonymous` relation between multiple items, i.e.
-    a function ``synonymous('drink', 'beverage') == True``,
-    while ``synonymous('drink', 'sandwich') == False``,
-    This could even be stored in another table of pairs and passed to the
-    ``theta_join()`` operation, in which case only items in this table would be
-    considered to be in the `synonymous` relation, e.g.::
-
-        | item_a   |  item_b   |
-        |----------|-----------|
-        | drink    | beverage  |
-        | starter  | appetizer |
-
-    So we can perform the theta-join operation in two steps.
-    First, provide the synonymous relation:::
-
-        def synonymous(item_a: str, item_b: str) -> bool:
-            # logic matching item_a with item_b
-
-    or::
-
-        synonymous = pd.read_csv('item_aliases.csv')
-
-    then call ``theta_join()``::
-
-        theta_join(
-            old_inventory, new_inventory,
-            relation = synonymous,
-            on = 'item'
-        )
-
-    **Example 2**
-
     We have two tables with numerical entries,
     and we want to match those numbers that are equal modulo 64
     (i.e. have the same remainder when dividing by 64).::
@@ -379,22 +336,10 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
     avail_mem = psutil.virtual_memory()
     avail_mem = (avail_mem.total - avail_mem.used) / 1024**2
     if est_mem > avail_mem:
-        logger.error(f'The operation requires more memory than is currently available: {est_mem}')
+        logger.error(f'The operation requires more memory than is currently available: {est_mem} MiB')
         raise MemoryError
     if est_mem / avail_mem > 0.75:
         logger.warning(f'The operation requires over 75% ({est_mem}) of available memory')
-
-    if isinstance(relation, pd.DataFrame):
-        relation_pairs = dict(relation.values)
-
-        def relation(a, b):
-            # Explicit check for presence of `a` to avoid any weird issues
-            # with None, N/As, and default values
-            if a not in relation_pairs:
-                # Ought to be the more common case with larger tables
-                return False
-            else:
-                return relation_pairs[a] == b
 
     # Cartesian join
     result = pd.merge(left[[left_on]].reset_index(),
@@ -402,14 +347,14 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
                       how='cross',
                       suffixes=suffixes)
 
-    # Filter on theta
     def _safe_relation(x, y) -> bool:
-        """Guard against known exceptions"""
+        """Wrapper to guard against known exceptions"""
         try:
             return relation(x, y)
         except InvalidOperation:
             return False
 
+    # Filter on theta
     result = result[
         result.apply(
             lambda row: _safe_relation(row[left_on + suffixes[0]],
