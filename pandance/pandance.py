@@ -117,13 +117,7 @@ def fuzzy_join(left: pd.DataFrame, right: pd.DataFrame,
     For more technical details on the issue, see this
     `post <https://randomascii.wordpress.com/2012/02/25/comparing-floating-point-numbers-2012-edition/>`_.
     """
-    if on is None and left_on is None and right_on is None:
-        raise KeyError('Column to join on must be specified '
-                       '(via "on" or "left_on" and "right_on").')
-    left_on = on if not None else left_on
-    right_on = on if not None else right_on
-    if isinstance(left_on, list) or isinstance(left_on, tuple):
-        raise KeyError('Fuzzy join only supports joining on a single column.')
+    left_on, right_on =_validate_input_columns(on, left_on, right_on)
 
     left, right = _def_validate_and_clean_inputs_to_fuzzy(left, right, left_on, right_on)
     if left.shape[0] == 0 or right.shape[0] == 0:
@@ -329,8 +323,7 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
             on = 'numeric_value'
         )
     """
-    left_on = on if not None else left_on
-    right_on = on if not None else right_on
+    left_on, right_on =_validate_input_columns(on, left_on, right_on)
 
     est_mem = _estimate_mem_cost_cartesian(left[[left_on]], right[[right_on]])
     avail_mem = psutil.virtual_memory()
@@ -390,3 +383,14 @@ def _estimate_mem_cost_cartesian(a: pd.DataFrame, b: pd.DataFrame) -> int:
     # so take the max unit cost of either index and multiply by resulting size
     cost_idx = max(a.index.values.itemsize, b.index.values.itemsize) * a.shape[0] * b.shape[0]
     return (cost_cols + cost_idx) / 1024**2
+
+
+def _validate_input_columns(on, left_on, right_on) -> tuple:
+    if on is None and left_on is None and right_on is None:
+        raise KeyError('Column to join on must be specified '
+                       '(via "on" or "left_on" and "right_on").')
+    left_on = on if not None else left_on
+    right_on = on if not None else right_on
+    if isinstance(left_on, list) or isinstance(left_on, tuple):
+        raise KeyError('Pandance operation only supports joining on a single column.')
+    return left_on, right_on
