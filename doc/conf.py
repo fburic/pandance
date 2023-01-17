@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.abspath('..'))
 
 # -- Project information -----------------------------------------------------
 project = 'Pandance'
-copyright = f'2021-{datetime.now().year}, Filip Buric'
+copyright = f'2022-{datetime.now().year}, Filip Buric'
 author = 'Filip Buric'
 language = 'en'
 version = pandance.__version__
@@ -20,6 +20,8 @@ extensions = ['sphinx.ext.autodoc',
               'sphinx.ext.napoleon',
               "sphinx.ext.autosummary",
               'sphinx_autodoc_typehints',
+              "sphinx.ext.mathjax",
+              'sphinx_togglebutton',
               "sphinx.ext.todo",
               'sphinx_toggleprompt']
 
@@ -30,9 +32,10 @@ exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
 # -- Options for HTML output -------------------------------------------------
 html_theme = 'pydata_sphinx_theme'
 html_theme_options = {
-    'github_url': 'https://github.com/fburic/panda-grove',
-    'navbar_end': ['navbar-icon-links'],
+    'github_url': 'https://github.com/fburic/pandance',
+    'navbar_end': ['theme-switcher', 'navbar-icon-links'],
 }
+
 # html_logo = '../img/pandance_logo.svg'
 # html_favicon = '../img/pandance_logo.svg'
 # html_sidebars = {'**': ['localtoc.html', 'searchbox.html'] }
@@ -41,3 +44,7 @@ html_theme_options = {
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
 html_static_path = ['_static']
+
+html_css_files = [
+    'css/custom.css'
+]

@@ -4,5 +4,5 @@ channels:
   - defaults
 dependencies:
   - python=3.8
-  - pandas=1.4.2
+  - pandas=1.2.0
   - intervaltree=3.1.0

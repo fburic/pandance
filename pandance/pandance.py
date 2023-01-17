@@ -19,7 +19,7 @@ def fuzzy_join(left: pd.DataFrame, right: pd.DataFrame,
                suffixes: tuple = ('_x', '_y')) -> pd.DataFrame:
     """
     Perform an approximate inner join of two DataFrames, on a numerical column.
-    E.g. ``1.03 ~= 1``, given an absolute tolerance ``tol = 0.5``.
+    E.g. :math:`1.03 \\approx 1`, given an absolute tolerance ``tol = 0.5``.
     The tolerance is inclusive, meaning ``(a - b) <= tol`` is considered a match.
 
     The joined DataFrame contains both numerical columns that were used in the join.
@@ -40,9 +40,9 @@ def fuzzy_join(left: pd.DataFrame, right: pd.DataFrame,
 
         This operation is a more efficient implementation
         compared to the generic `theta_join <#pandance.theta_join>`_,
-        taking *O((N+M) log2 M)* time,
+        taking :math:`O((N+M) \\cdot \\log_2{M})` time,
         where *M* is the length of the longest of the two DataFrames,
-        and *N* of the other, instead of *O(N*M)*.
+        and *N* of the shorter one, instead of :math:`O(N \\cdot M)`.
 
     :param left: The left-hand side Pandas DataFrame
     :param right: The right-hand side Pandas DataFrame
@@ -271,7 +271,7 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
         it's implemented as a Cartesian product of the two ``on`` columns
         in the input DataFrames,
         followed by a filter on the pairs for which the `theta` relation holds.
-        So the memory usage is `O(N * M)`,
+        So the memory usage is :math:`O(N \\cdot M)`,
         where `N` and `M` are the respective sizes of the ``on`` columns.
 
         A warning is logged if the estimated requirement is above 75%
@@ -334,7 +334,7 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
     **Substring matching**
 
     We have two tables of character strings and want to find all pairs in which
-    strings from the left join coliumn appear as substrings of the right.
+    strings from the left join column appear as substrings of the right.
 
     >>> import pandas as pd
     >>> import pandance as dance
@@ -387,6 +387,10 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
     1        rice          34  soy beans          48
     2  oat flakes          32  chickpeas          38
     3  oat flakes          32  soy beans          48
+
+    .. tip::
+        This type of relation can be implemented more efficiently and will be
+        offered as a separate operation in release 0.2.0.
     """
     left_on, right_on = _validate_input_columns(on, left_on, right_on)
 

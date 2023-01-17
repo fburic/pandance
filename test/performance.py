@@ -1,3 +1,6 @@
+"""
+Profile speed and memory usage of Pandance operations.
+"""
 import cProfile, pstats, io
 import datetime
 from pstats import SortKey

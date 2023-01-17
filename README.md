@@ -1,15 +1,23 @@
-# Pandance
+Pandance provides advanced relational operations for
+[pandas](https://pandas.pydata.org/) DataFrames,
+enabling powerful and efficient joins (aka merges).
 
-A collection of advanced Pandas DataFrame operations:
+## Highlights
 
-- fuzzy joins
-- the more generic [theta joins](https://en.wikipedia.org/wiki/Relational_algebra#%CE%B8-join_and_equijoin)
+Pandance extends the set of standard join operations in pandas
+(inner, outer, cross, left, right) with:
 
-As the scope of the package is providing advanced functionality,
-it depends on several additional packages besides Pandas.
-Also towards this end, the intent is to use newer versions of Pandas.
+- **fuzzy joins**: Match columns with a tolerance
+- **[theta joins](https://en.wikipedia.org/wiki/Relational_algebra#%CE%B8-join_and_equijoin)**:
+  Allows the user to specify arbitrary matching conditions on which to join
 
-It is intended as a complement to the 
-[Panda Grove](https://panda-grove.readthedocs.io/en/latest/) package 
-for managing multiple DataFrames and performing n-ary merges,
-which only depends on (slightly older) Pandas and adds minimal API overhead.
+Pandance is designed with performance in mind, aiming to provide fast implementations
+whenever possible.
+
+## TODO
+
+- `[0.2.0]` fuzzy join support for DateTime data, as well as arbitrary 
+  object types supporting comparison and equality 
+  and a distance between them () 
+
+- `[0.2.0]` inequality join: efficient implementation of non-equijoins using inequalities (<, >)
