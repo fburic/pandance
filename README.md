@@ -17,7 +17,5 @@ whenever possible.
 ## TODO
 
 - `[0.2.0]` fuzzy join support for DateTime data, as well as arbitrary 
-  object types supporting comparison and equality 
-  and a distance between them () 
-
+  object types supporting comparison and equality
 - `[0.2.0]` inequality join: efficient implementation of non-equijoins using inequalities (<, >)
