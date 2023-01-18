@@ -22,6 +22,16 @@ Pandance extends the set of standard join operations in pandas
 Pandance is designed with performance in mind, aiming to provide fast implementations
 whenever possible.
 
+## Installation
+
+```shell
+pip install pandance
+```
+
+## Usage
+
+See the [documentation](https://pandance.readthedocs.io)
+
 ## TODO
 
 - `[0.2.0]` fuzzy join support for DateTime data, as well as arbitrary 
