@@ -1,5 +1,5 @@
 <div align="center" >
-  <img src="img/pandance_logo.svg" width="250px"><br>
+  <img src="doc/source/img/pandance_logo.svg" width="250px"><br>
 </div>
 
 <h1 align="center">Pandance</h1>

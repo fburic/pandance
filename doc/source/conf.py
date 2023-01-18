@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.abspath('..'))
 
 # -- Project information -----------------------------------------------------
 project = 'Pandance'
-copyright = f'2022-{datetime.now().year}, Filip Buric'
+copyright = f'CC BY-SA 4.0 2022-{datetime.now().year}, Filip Buric'
 author = 'Filip Buric'
 language = 'en'
 version = pandance.__version__
