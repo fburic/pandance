@@ -1,6 +1,5 @@
-# Used by GitHub Actions and Read the Docs
+# Used by GitHub Actions
 pandas>=1.2.0
 intervaltree==3.1.0
 hypothesis>=6.53
 psutil>=5.9.0
-pandance
