@@ -11,7 +11,7 @@ build-backend = "setuptools.build_meta"
 packages = ["pandance"]
 
 [project]
-name = "pandance_fburic"
+name = "pandance"
 version = "0.1.0"
 authors = [
   { name="Filip Buric" }
