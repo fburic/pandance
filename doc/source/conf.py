@@ -34,11 +34,16 @@ html_theme = 'pydata_sphinx_theme'
 html_theme_options = {
     'github_url': 'https://github.com/fburic/pandance',
     'navbar_end': ['theme-switcher', 'navbar-icon-links'],
+    'secondary_sidebar_items': ['page-toc'],
+    'show_nav_level': 2,
+    'show_toc_level': 2,
+
+    "pygment_light_style": 'tango',
+    "pygment_dark_style": "monokai"
 }
 
-# html_logo = '../img/pandance_logo.svg'
-# html_favicon = '../img/pandance_logo.svg'
-# html_sidebars = {'**': ['localtoc.html', 'searchbox.html'] }
+html_logo = 'img/pandance_logo.svg'
+html_favicon = 'img/pandance_logo.svg'
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,

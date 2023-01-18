@@ -3,3 +3,11 @@ html[data-theme="light"] {
     --pst-color-primary: #398299;
     --pst-color-link: #196780;
 }
+
+.bd-sidebar-primary {
+    max-width: 15%;
+}
+
+.bd-sidebar-secondary {
+    max-width: 15%;
+}

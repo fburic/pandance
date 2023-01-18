@@ -2,6 +2,8 @@
   :language: python
   :class: highlight
 
+.. _getting_started:
+
 Getting Started
 ===============
 
