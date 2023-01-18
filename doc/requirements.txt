@@ -1,7 +1,9 @@
 # Used by Read the Docs for Sphinx autodoc
+pandance
 sphinx-autodoc-typehints
 sphinx-copybutton
 sphinx-toggleprompt
 sphinx-togglebutton
 pydata-sphinx-theme
 sphinx-autodoc-typehints
+sphinxcontrib-napoleon

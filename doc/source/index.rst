@@ -4,7 +4,7 @@
 |logo| Pandance documentation
 =============================
 
-**Version**: 0.1.0
+**Version**: |version|
 
 Pandance provides advanced relational operations for
 `pandas <https://pandas.pydata.org/>`_ DataFrames,
