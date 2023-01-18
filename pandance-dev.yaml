@@ -19,3 +19,4 @@ dependencies:
     - sphinx-autodoc-typehints
     - deal==4.23.4
     - hypothesis==6.53
+    - psutil>=5.9.0
