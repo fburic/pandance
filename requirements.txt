@@ -2,3 +2,4 @@ pandas>=1.2.0
 intervaltree==3.1.0
 hypothesis>=6.53
 psutil>=5.9.0
+pandance>=0.1.0

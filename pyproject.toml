@@ -16,6 +16,9 @@ version = "0.1.0"
 authors = [
   { name="Filip Buric" }
 ]
+maintainers = [
+  { name="Filip Buric" }
+]
 description = "Advanced relational operations for pandas DataFrames"
 readme = "README.md"
 requires-python = ">=3.8"
