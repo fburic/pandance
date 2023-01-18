@@ -1,1 +1,7 @@
-pandance  # Needed by Read the Docs for Sphinx autodoc
+# Used by Read the Docs for Sphinx autodoc
+sphinx-autodoc-typehints
+sphinx-copybutton
+sphinx-toggleprompt
+sphinx-togglebutton
+pydata-sphinx-theme
+sphinx-autodoc-typehints
