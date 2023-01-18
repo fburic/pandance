@@ -2,8 +2,6 @@ import os
 import sys
 from datetime import datetime
 
-import pandance
-
 sys.path.insert(0, os.path.abspath('..'))
 
 
@@ -12,7 +10,6 @@ project = 'Pandance'
 copyright = f'CC BY-SA 4.0 2022-{datetime.now().year}, Filip Buric'
 author = 'Filip Buric'
 language = 'en'
-version = pandance.__version__
 
 
 # -- General configuration ---------------------------------------------------
