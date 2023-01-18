@@ -14,7 +14,7 @@ packages = ["pandance"]
 name = "pandance_fburic"
 version = "0.1.0"
 authors = [
-  { name="Filip Buric", email="" },
+  { name="Filip Buric" }
 ]
 description = "Advanced relational operations for pandas DataFrames"
 readme = "README.md"
