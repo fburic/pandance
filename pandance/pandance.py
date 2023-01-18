@@ -39,7 +39,7 @@ def fuzzy_join(left: pd.DataFrame, right: pd.DataFrame,
     .. note::
 
         This operation is a more efficient implementation
-        compared to the generic `theta_join <#pandance.theta_join>`_,
+        compared to the generic :py:func:`theta_join`,
         taking :math:`O((N+M) \\cdot \\log_2{M})` time,
         where *M* is the length of the longest of the two DataFrames,
         and *N* of the shorter one, instead of :math:`O(N \\cdot M)`.
