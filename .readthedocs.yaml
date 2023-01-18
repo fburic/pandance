@@ -7,5 +7,9 @@ build:
 
 python:
   install:
-    - requirements: requirements.txt
+    - method: pip
+      path: .
     - requirements: doc/requirements.txt
+
+sphinx:
+  fail_on_warning: true

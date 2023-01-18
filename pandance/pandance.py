@@ -22,7 +22,8 @@ def fuzzy_join(left: pd.DataFrame, right: pd.DataFrame,
     E.g. :math:`1.03 \\approx 1`, given an absolute tolerance ``tol = 0.5``.
     The tolerance is inclusive, meaning ``(a - b) <= tol`` is considered a match.
 
-    The joined DataFrame contains both numerical columns that were used in the join.
+    The joined DataFrame contains both numerical columns that were used in the join,
+    with appended ``suffixes``.
 
     .. warning::
 
