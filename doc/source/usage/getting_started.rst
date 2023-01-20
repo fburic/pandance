@@ -16,14 +16,6 @@ Pandance is available from PyPI
 
    pip install pandance
 
-The package can also be installed with ``pip`` in
-`editable <https://pip.pypa.io/en/stable/cli/pip_install/#editable-installs>`_
-mode from the repo:
-
-.. code-block:: shell
-
-    pip install -e git+ssh://github.com/fburic/pandance.git#egg=panda-grove
-
 
 Basic Usage
 -----------
@@ -47,9 +39,9 @@ Highlights
 Pandance extends the set of standard join operations in pandas
 (inner, outer, cross, left, right) with:
 
-- **fuzzy joins**: Match columns with a tolerance
+- **fuzzy joins**: Match columns with a tolerance. Supports numerical and datetime values.
 - **theta joins**: Allows the user to specify arbitrary matching conditions on
-  which to join
+  which to join.
 
 Pandance is designed with performance in mind, aiming to provide fast implementations
 whenever possible.
@@ -67,32 +59,38 @@ or joining on some type of real-valued (float) score to find entries with simila
 One approach is to transform the input DataFrames by binning (discretizing) these values.
 A more natural approach would be to consider fuzzy matches.
 
-Taking the previous example of matching things based on their time of occurrence,
-say we have two datasets recording the daily observation times of some events
-(normalized as 0..1)::
+Taking the previous example of matching things based on some real value,
+say we have two sets of model performance scores (0..1).
+The models in one list are rather simple, the others much more complex::
 
-    df_a:                               df_b:
+    simple_models:             fancy_models:
 
-      | event    |  time_obs   |          | event    |  time_obs   |
-      |----------|-------------|          |----------|-------------|
-      | event1   | 0.2         |          | event5   | 0.1         |
-      | event2   | 0.5         |          | event6   | 0.54        |
-      | event3   | 0.7         |          | event7   | 0.8         |
-      | event4   | 0.9         |          | event9   | 0.89        |
+      +-------+-------+          +-------+-------+
+      | model | score |          | model | score |
+      +-------+-------+          +-------+-------+
+      | A     | 0.2   |          | M1    | 0.1   |
+      | B     | 0.5   |          | M2    | 0.54  |
+      | C     | 0.7   |          | M3    | 0.8   |
+      | D     | 0.9   |          | M4    | 0.89  |
+      +-------+-------+          +-------+-------+
 
-and we want to only get the events that occur at approximately the same time between sets.
-This can be easily expressed as a fuzzy join on the time column::
+We're interested in finding models that perform essentially the same across the two lists,
+and take a score tolerance of 0.05.
+This can be easily expressed as a fuzzy join on the score column::
 
-    fuzzy_join(df_a, df_b, on='time_obs', tol=0.05, suffixes=('_a', '_b'))
+    fuzzy_join(simple_models, fancy_models, on='score', tol=0.05, suffixes=('_s', '_f'))
 
 This gives::
 
-    | event_a  |  time_obs_a | event_b  | time_obs_b |
-    |----------|-------------|----------|------------|
-    | event2   | 0.5         | event6   | 0.54       |
-    | event4   | 0.9         | event9   | 0.89       |
+    +---------+---------+---------+---------+
+    | model_s | score_s | model_f | score_f |
+    +---------+---------+---------+---------+
+    | B       | 0.5     | M2      | 0.54    |
+    | D       | 0.9     | M4      | 0.89    |
+    +---------+---------+---------+---------+
 
-See the :py:meth:`fuzzy_join <pandance.fuzzy_join>` documentation for more details.
+See the :py:meth:`fuzzy_join <pandance.fuzzy_join>` documentation for more details
+and examples, including for time series data.
 
 Pandance fuzzy joins are fast and consume little memory, primarily by using
 `interval trees <https://github.com/chaimleib/intervaltree>`_
@@ -115,7 +113,7 @@ illustrated here on the same dataset::
 
     The R ``fuzzyjoin`` implementation (as of version 0.1.6),
     as well as solutions on e.g. StackOverflow,
-    perform the operation as a Cartesian join (comparing all against all,
+    perform the operation (conceptually) as a Cartesian join (comparing all against all,
     so a :math:`O(M)` lookup time for each entry in the shorter column),
     followed by filtering on pairs within the tolerance.
 
@@ -162,11 +160,13 @@ and want to find all pairs in which `keywords` appear as substrings of `phrases`
 
     keywords:            phrases:
 
-      | keyword |          | phrase                                       |
-      |---------|          |----------------------------------------------|
+      +---------+          +----------------------------------------------+
+      | keyword |          |                                       phrase |
+      +---------+          +----------------------------------------------+
       | a       |          | the quick brown fox jumps over the lazy dog  |
       | the     |          | lorem ipsum dolor                            |
-      | xyzzy   |
+      | xyzzy   |          +----------------------------------------------+
+      +---------+
 
 A :math:`\theta`-join can be written with a user-specified match relation
 :python:`lambda kw, phrase: kw in phrase` like so::
@@ -179,10 +179,15 @@ A :math:`\theta`-join can be written with a user-specified match relation
 
 Which results in::
 
+    +---------+---------------------------------------------+
     | keyword |                                      phrase |
-    |---------|---------------------------------------------|
+    +---------+---------------------------------------------+
     |      a  | the quick brown fox jumps over the lazy dog |
     |    the  | the quick brown fox jumps over the lazy dog |
+    +---------+---------------------------------------------+
+
+See the :py:meth:`theta_join <pandance.theta_join>` documentation for more details
+and examples.
 
 .. warning::
 

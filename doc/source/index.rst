@@ -20,3 +20,9 @@ enabling powerful and efficient joins (aka merges).
     :maxdepth: 2
 
     operations/index
+
+
+.. toctree::
+    :maxdepth: 1
+
+    relnotes/index

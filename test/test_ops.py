@@ -1,10 +1,11 @@
 # Unit tests for Pandance DataFrame operations
+import datetime
 from decimal import getcontext, Decimal
 import math
 import numpy as np
 import pandas as pd
 
-from hypothesis import given, seed, strategies as st
+from hypothesis import assume, given, seed, strategies as st
 import hypothesis.extra.numpy as hnp
 
 import pandance as dance
@@ -45,6 +46,79 @@ def test_fuzzy_join_simple():
     assert fuzzy_result.compare(theta_result).empty
     assert fuzzy_result_none.shape[0] == 0
     assert theta_result_none.shape[0] == 0
+
+
+def test_fuzzy_join_datetime():
+    time_data_a = pd.DataFrame({
+        'event': ['event1', 'event2', 'event3'],
+        'obs_time': pd.to_datetime(
+            ['2021-01-01 10:23', '2021-02-01 13:23', '2021-03-01 15:23']
+        )
+    })
+    time_data_b = pd.DataFrame({
+        'event': ['event4', 'event5', 'event6', 'event7'],
+        'obs_time': pd.to_datetime(
+            ['2021-01-01 10:22', '2021-02-01 21:23',  '2021-03-01 15:22', '2021-03-01 15:24']
+        )
+    })
+    expected_result = pd.DataFrame([
+        ('event1', '2021-01-01 10:23:00', 'event4', '2021-01-01 10:22:00'),
+        ('event3', '2021-03-01 15:23:00', 'event6', '2021-03-01 15:22:00'),
+        ('event3', '2021-03-01 15:23:00', 'event7', '2021-03-01 15:24:00')
+    ], columns=['event_x', 'obs_time_x', 'event_y', 'obs_time_y'])
+    expected_result['obs_time_x'] = pd.to_datetime(expected_result['obs_time_x'])
+    expected_result['obs_time_y'] = pd.to_datetime(expected_result['obs_time_y'])
+
+    fuzzy_result = (
+        dance.fuzzy_join(time_data_a, time_data_b, on='obs_time',
+                         tol=pd.Timedelta('1 minute'))
+        .sort_values(['event_x', 'event_y'])
+        .reset_index(drop=True)
+    )
+    theta_result = (
+        dance.theta_join(time_data_a, time_data_b, on='obs_time',
+                         relation=lambda ta, tb: abs(ta-tb) <= pd.Timedelta('1 minute'))
+        .sort_values(['event_x', 'event_y'])
+        .reset_index(drop=True)
+    )
+    assert fuzzy_result.compare(expected_result).empty
+    assert fuzzy_result.compare(theta_result).empty
+
+
+@given(
+    data_range_start=st.datetimes(min_value=datetime.datetime(2022, 1, 1, 0, 0),
+                                  max_value=datetime.datetime(2022, 1, 2, 0, 0),
+                                  allow_imaginary=False),
+    data_range_end=st.datetimes(min_value=datetime.datetime(2022, 1, 1, 0, 0),
+                                max_value=datetime.datetime(2022, 1, 2, 0, 0),
+                                allow_imaginary=False)
+)
+@seed(42)
+def test_fuzzy_join_range_overlap(data_range_start, data_range_end):
+    assume(data_range_start <= data_range_end)
+
+    time_data_a = pd.DataFrame({
+        'time': pd.date_range(data_range_start, data_range_end, freq='h')
+    }).reset_index()
+
+    time_data_b = pd.DataFrame({
+        'time': pd.date_range(data_range_end - datetime.timedelta(),
+                              data_range_end, freq='h')
+    }).reset_index()
+
+    fuzzy_result = (
+        dance.fuzzy_join(time_data_a, time_data_b, on='time',
+                         tol=pd.Timedelta('1 hour')).reset_index(drop=True)
+        .sort_values(['index_x', 'index_y'])
+        .reset_index(drop=True)
+    )
+    theta_result = (
+        dance.theta_join(time_data_a, time_data_b, on='time',
+                         relation=lambda ta, tb: abs(ta - tb) <= pd.Timedelta('1 hour'))
+        .sort_values(['index_x', 'index_y'])
+        .reset_index(drop=True)
+    )
+    assert fuzzy_result.compare(theta_result).empty
 
 
 @given(
@@ -88,6 +162,21 @@ def test_fuzzy_join_safe(values_a, tolerance):
         theta_result = (theta_result.sort_values(['index_x', 'index_y'])
                         .reset_index(drop=True))
         assert fuzzy_result.compare(theta_result).empty
+
+
+def test_fuzzy_join_type_combos():
+    df_numeric = pd.DataFrame([1, 2, 3], columns=['val'])
+    df_time = pd.DataFrame({
+        'val': pd.date_range(datetime.datetime(2022, 1, 1, 0, 0),
+                              datetime.datetime(2022, 1, 1, 5, 0), freq='h')
+    })
+    import pytest
+    with pytest.raises(TypeError):
+        dance.fuzzy_join(df_numeric, df_time, tol=0.1, on='val')
+    with pytest.raises(TypeError):
+        dance.fuzzy_join(df_time, df_time, tol=0.1, on='val')
+    with pytest.raises(TypeError):
+        dance.fuzzy_join(df_numeric, df_numeric, tol=pd.Timedelta('1 minute'), on='val')
 
 
 def test_theta_join_numeric():
@@ -215,6 +304,8 @@ def test_mem_usage():
 
     cartesian_join = pd.merge(a[['data']], b[['data']], how='cross')
     cartesian_cost = cartesian_join.memory_usage(deep=True).sum() / 1024**2
+    if pd.__version__ < '1.4.0':
+        cartesian_cost *= 2
 
     est_cost = dance._estimate_mem_cost_cartesian(a, b)
     # Triangle approximate equality just to be paranoid about float errors

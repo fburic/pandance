@@ -1,11 +1,12 @@
-from decimal import Decimal, InvalidOperation
+import datetime
 import logging
-import psutil
+from decimal import Decimal, InvalidOperation
 from typing import Callable, Optional, Union
 
 import intervaltree as itree
 import numpy as np
 import pandas as pd
+import psutil
 
 __all__ = ['fuzzy_join', 'theta_join', '_estimate_mem_cost_cartesian']
 
@@ -15,19 +16,22 @@ logger = logging.getLogger()
 
 def fuzzy_join(left: pd.DataFrame, right: pd.DataFrame,
                on: str = None, left_on: str = None, right_on: str = None,
-               tol: Union[float, Decimal] = 1e-3,
+               tol: Union[float, Decimal, pd.Timedelta] = 1e-3,
                suffixes: tuple = ('_x', '_y')) -> pd.DataFrame:
     """
-    Perform an approximate inner join of two DataFrames, on a numerical column.
-    E.g. :math:`1.03 \\approx 1`, given an absolute tolerance ``tol = 0.5``.
+    Perform an approximate inner join of two DataFrames, on a numerical or time column.
+    For example, :math:`1.03 \\approx 1` would be a match, given an absolute tolerance ``tol = 0.5``.
     The tolerance is inclusive, meaning ``(a - b) <= tol`` is considered a match.
 
-    The joined DataFrame contains both numerical columns that were used in the join,
+    A single join column may be used and this must be given explicitly
+    (with ``on``, or ``left_on`` and ``right_on``).
+
+    The joined DataFrame contains both columns that were used in the join,
     with appended ``suffixes``.
 
     .. warning::
 
-        The matching may misbehave if values are very large and the tolerance small,
+        The matching may misbehave if numerical values are very large and the tolerance small,
         due to the simple absolute tolerance test and floating point representation
         limitations (see *Notes*).
 
@@ -47,42 +51,76 @@ def fuzzy_join(left: pd.DataFrame, right: pd.DataFrame,
 
     :param left: The left-hand side Pandas DataFrame
     :param right: The right-hand side Pandas DataFrame
-    :param on: (Single) numerical column name to join on
-    :param left_on: (Single) numerical column name to join on in the left DataFrame
-    :param right_on: (Single) numerical column name to join on in the right DataFrame
-    :param tol: Numerical tolerance for the fuzzy matching.
+    :param on: (Single) numerical or time column name to join on
+    :param left_on: (Single) numerical or time column name to join on in the left DataFrame
+    :param right_on: (Single) numerical or time column name to join on in the right DataFrame
+    :param tol: Numerical or temporal tolerance for the fuzzy matching.
     :param suffixes: A length-2 sequence where each element is optionally
         a string indicating the suffix to add to overlapping column names
-        in left and right respectively
+        in ``left`` and ``right``, respectively
     :return: The fuzzy join of the two DataFrames.
 
-    Example
-    -------
+    Examples
+    --------
 
-    Given two datasets recording the observation times (0..1) of events,
-    perform a fuzzy join on the time column,
+    **Numerical columns**
+
+    We have two sets of model performance scores (0..1).
+    The models in one list are rather simple, the others much more complex.
+
+    >>> import pandas as pd
+    >>> simple_models = pd.DataFrame([
+    ...     ('A', 0.2),
+    ...     ('B', 0.5),
+    ...     ('C', 0.7),
+    ...     ('D', 0.9)
+    ... ], columns=['model', 'score'])
+    >>> complex_models = pd.DataFrame([
+    ...     ('M1', 0.1),
+    ...     ('M2', 0.89),
+    ...     ('M3', 0.8),
+    ...     ('M4', 0.54)
+    ... ], columns=['model', 'score'])
+
+    We're interested in finding models that perform essentially the same
+    across the two lists, accepting a score tolerance of 0.05:
+
+    >>> import pandance as dance
+    >>> dance.fuzzy_join(simple_models, complex_models, on='score', tol=0.05, suffixes=('_s', '_f'))
+      model_s  score_s model_f  score_f
+    0       B      0.5      M4     0.54
+    1       D      0.9      M2     0.89
+
+    **Time series**
+
+    Given two datasets recording the observation times of events,
+    perform a fuzzy join on the time column
     to get only the events that occur at approximately the same time between sets::
 
-      df_a:                               df_b:
+      df_x:                                df_y:
 
-          | event    |  time_obs   |          | event    |  time_obs   |
-          |----------|-------------|          |----------|-------------|
-          | event1   | 0.2         |          | event5   | 0.1         |
-          | event2   | 0.5         |          | event6   | 0.54        |
-          | event3   | 0.7         |          | event7   | 0.8         |
-          | event4   | 0.9         |          | event9   | 0.89        |
+        +--------+---------------------+     +--------+---------------------+
+        |  event |            obs_time |     |  event |            obs_time |
+        +--------+---------------------+     +--------+---------------------+
+        | event1 | 2021-01-01 10:23:00 |     | event4 | 2021-01-01 10:22:00 |
+        | event2 | 2021-02-01 13:23:00 |     | event5 | 2021-02-01 21:23:00 |
+        | event3 | 2021-03-01 15:23:00 |     | event6 | 2021-03-01 15:22:00 |
+        +--------+---------------------+     | event7 | 2021-03-01 15:24:00 |
+                                             +--------+---------------------+
 
     The operation::
 
-        fuzzy_join(df_a, df_b, on='time_obs', tol=0.05, suffixes=('_a', '_b'))
+        fuzzy_join(df_x, df_y, on='obs_time', tol=pd.Timedelta('1 minute'))
 
     gives::
 
-        | event_a  |  time_obs_a | event_b  | time_obs_b |
-        |----------|-------------|----------|------------|
-        | event2   | 0.5         | event6   | 0.54       |
-        | event4   | 0.9         | event9   | 0.89       |
-
+        +---------+---------------------+---------+---------------------+
+        | event_x |          obs_time_x | event_y |          obs_time_y |
+        +---------+---------------------+---------+---------------------+
+        | event1  | 2021-01-01 10:23:00 | event4  | 2021-01-01 10:22:00 |
+        | event3  | 2021-03-01 15:23:00 | event6  | 2021-03-01 15:22:00 |
+        | event3  | 2021-03-01 15:23:00 | event7  | 2021-03-01 15:24:00 |
+        +---------+---------------------+---------+---------------------+
 
     Notes
     -----
@@ -118,24 +156,30 @@ def fuzzy_join(left: pd.DataFrame, right: pd.DataFrame,
     For more technical details on the issue, see this
     `post <https://randomascii.wordpress.com/2012/02/25/comparing-floating-point-numbers-2012-edition/>`_.
     """
-    left_on, right_on = _validate_input_columns(on, left_on, right_on)
-    left, right = _def_validate_and_clean_inputs_to_fuzzy(left, right, left_on, right_on)
+    left_on, right_on = _validate_input_col_names(on, left_on, right_on)
+    left, right = _def_validate_and_clean_inputs_to_fuzzy(left, right,
+                                                          left_on, right_on, tol)
     if left.shape[0] == 0 or right.shape[0] == 0:
         return _empty_df(left_on, right_on, suffixes)
 
     if left.shape[0] <= right.shape[0]:
+        swap_col_order = False
         shorter_col, longer_col = left_on, right_on
         shorter_df, longer_df = left, right
     else:
+        swap_col_order = True
         longer_col, shorter_col = left_on, right_on
         longer_df, shorter_df = left, right
 
-    epsilon = np.finfo(np.float32).eps
+    if isinstance(tol, (np.timedelta64, pd.Timedelta, datetime.timedelta)):
+        epsilon = pd.Timedelta('1 ns')
+    else:
+        epsilon = np.finfo(np.float32).eps
     if isinstance(left[left_on].values[0], Decimal):
         tol = Decimal(tol)
         epsilon = Decimal(epsilon.item())
-    interval_tree = _build_interval_tree(longer_df[[longer_col]], tol, epsilon)
 
+    interval_tree = _build_interval_tree(longer_df[[longer_col]], tol, epsilon)
     index_association = _get_fuzzy_match_indices(shorter_df[[shorter_col]], interval_tree)
     if not index_association:
         return _empty_df(left_on, right_on, suffixes)
@@ -144,6 +188,10 @@ def fuzzy_join(left: pd.DataFrame, right: pd.DataFrame,
     # Merge on new index to match order of associated left-right indices
     rows_short = shorter_df.loc[(i for i in index_assoc_short)].reset_index(drop=True)
     rows_long = longer_df.loc[(i for i in index_assoc_long)].reset_index(drop=True)
+
+    # Reflect order of input DataFrames
+    if swap_col_order:
+        rows_short, rows_long = rows_long, rows_short
     join_result = pd.merge(
         rows_short, rows_long,
         left_index=True, right_index=True, suffixes=suffixes
@@ -205,23 +253,40 @@ def _matching_indices_for_value(val, val_idx, interval_tree: itree.IntervalTree)
             yield val_idx, i
 
 
+ToleranceType = Union[int, float, np.integer, np.floating,
+                      np.timedelta64, pd.Timedelta]
+
+
 def _def_validate_and_clean_inputs_to_fuzzy(left: pd.DataFrame,
                                             right: pd.DataFrame,
                                             left_on: str,
-                                            right_on: str) -> tuple:
+                                            right_on: str,
+                                            tol: ToleranceType) -> tuple:
     supported_dtypes = ['i', 'u', 'f']
     exception_msg = f'Operation only supports joining on columns ' \
-                    f'of NumPy types: {supported_dtypes} or decimal.Decimal'
+                    f'of NumPy types: {supported_dtypes}, ' \
+                    f'NumPy datetime64, or decimal.Decimal'
+
+    left_val_sample = left[left_on].values[0]
+    right_val_sample = right[right_on].values[0]
 
     if left[left_on].dtype.kind not in supported_dtypes:
         if left.shape[0] > 0:
-            if not isinstance(left[left_on].values[0], Decimal):
+            if not isinstance(left_val_sample, (Decimal, np.datetime64)):
                 raise TypeError('Left DataFrame invalid: ' + exception_msg)
 
     if right[right_on].dtype.kind not in supported_dtypes:
         if right.shape[0] > 0:
-            if not isinstance(right[right_on].values[0], Decimal):
+            if not isinstance(right_val_sample, (Decimal, np.datetime64)):
                 raise TypeError('Right DataFrame invalid: ' + exception_msg)
+
+    if isinstance(left_val_sample, np.datetime64) ^ isinstance(right_val_sample, np.datetime64):
+        raise TypeError('Both columns must be datetime64')
+
+    if (isinstance(left_val_sample, np.datetime64)
+            and not isinstance(tol, (pd.Timedelta, datetime.timedelta))):
+        raise TypeError('When working with datetime64, the tolerance must be '
+                        'numpy.timedelta64 or datetime.timedelta')
 
     left = left[left[left_on].map(_is_valid_value)]
     right = right[right[right_on].map(_is_valid_value)]
@@ -262,7 +327,7 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
     It generalizes equijoins (where θ = equality).
     See examples below and the
     `Wikipedia article <https://en.wikipedia.org/wiki/Relational_algebra#%CE%B8-join_and_equijoin>`_,
-    though in Pandance θ isn't limited to the typical set of relations
+    though in Pandance θ is not limited to the typical set of relations
     {<, <=, =, !=, >=, >}. Rather, the user may specify any boolean-valued function
     as a ``relation``, as described below.
 
@@ -299,7 +364,7 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
     .. seealso::
 
         :py:func:`fuzzy_join`
-            A special case of θ-join, where θ = `approximately_equal`.
+            A special case of θ-join, where θ is :math:`\\approx`.
             It's offered as a separate function since it can be implemented more efficiently.
             Consider using it if you're matching numerical values with a tolerance.
 
@@ -391,9 +456,9 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
 
     .. tip::
         This type of relation can be implemented more efficiently and will be
-        offered as a separate operation in release 0.2.0.
+        offered as a separate operation in release 0.3.0.
     """
-    left_on, right_on = _validate_input_columns(on, left_on, right_on)
+    left_on, right_on = _validate_input_col_names(on, left_on, right_on)
 
     est_mem = _estimate_mem_cost_cartesian(left[[left_on]], right[[right_on]])
     avail_mem = psutil.virtual_memory()
@@ -456,7 +521,7 @@ def _estimate_mem_cost_cartesian(a: pd.DataFrame, b: pd.DataFrame) -> int:
     return (cost_cols + cost_idx) / 1024**2
 
 
-def _validate_input_columns(on, left_on, right_on) -> tuple:
+def _validate_input_col_names(on, left_on, right_on) -> tuple:
     if on is None and left_on is None and right_on is None:
         raise KeyError('Column to join on must be specified '
                        '(via "on" or "left_on" and "right_on").')

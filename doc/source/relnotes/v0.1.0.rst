@@ -1,0 +1,20 @@
+.. _relnotes010:
+
+Features in 0.1.0 (January 18, 2023)
+====================================
+
+Initial release with the following functionality:
+
+- :py:meth:`fuzzy join <pandance.fuzzy_join>`:
+  Inner join matching numerical columns approximately.
+  Supports numerical and built-in Python ``decimal.Decimal`` column types.
+- :py:meth:`theta join <pandance.theta_join>`:
+  Inner join matching columns according to a user-specified matching function.
+
+Known issues
+------------
+
+* The order of columns in the fuzzy join result reflect the length of the input
+  DataFrames, not the left/right order of the arguments,
+  with columns from the longer DataFrame appearing on the right.
+  Fixed in :ref:`v0.2.0 <relnotes020>`.
