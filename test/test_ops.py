@@ -168,7 +168,7 @@ def test_fuzzy_join_type_combos():
     df_numeric = pd.DataFrame([1, 2, 3], columns=['val'])
     df_time = pd.DataFrame({
         'val': pd.date_range(datetime.datetime(2022, 1, 1, 0, 0),
-                              datetime.datetime(2022, 1, 1, 5, 0), freq='h')
+                             datetime.datetime(2022, 1, 1, 5, 0), freq='h')
     })
     import pytest
     with pytest.raises(TypeError):
@@ -301,11 +301,11 @@ def test_mem_usage():
     exp_idx_size = unit_size_idx * len_a * len_b
     exp_col_size = 2 * unit_size_data * len_a * len_b
     expected_size = (exp_idx_size + exp_col_size) / 1024**2
+    if pd.__version__ < '1.4.0':
+        expected_size *= 2
 
     cartesian_join = pd.merge(a[['data']], b[['data']], how='cross')
     cartesian_cost = cartesian_join.memory_usage(deep=True).sum() / 1024**2
-    if pd.__version__ < '1.4.0':
-        cartesian_cost *= 2
 
     est_cost = dance._estimate_mem_cost_cartesian(a, b)
     # Triangle approximate equality just to be paranoid about float errors
