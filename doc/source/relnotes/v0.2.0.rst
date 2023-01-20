@@ -3,6 +3,9 @@
 What's new in 0.2.0 (January 20, 2023)
 ======================================
 
+Features
+--------
+
 * :py:meth:`Fuzzy join <pandance.fuzzy_join>` now supports NumPy ``datetime64``
   columns with tolerance of types ``datetime.timedelta``, NumPy ``timedelta64``,
   or Pandas ``Timedelta``.

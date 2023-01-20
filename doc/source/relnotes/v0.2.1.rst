@@ -1,0 +1,11 @@
+.. _relnotes021:
+
+What's new in 0.2.1 (January 20, 2023)
+======================================
+
+Minor bugfix release
+
+Bug fixes
+---------
+
+* pip was not automatically installing dependencies.
