@@ -702,15 +702,10 @@ def ineq_join(left: pd.DataFrame, right: pd.DataFrame,
     lookup = lookup.rename(columns={'index': 'orig_idx' + suffixes[1]})
 
     def match_higher_values(val):
-        return list(
-            range(binary_search(lookup[longer_col].values, val),
-                  lookup.shape[0])
-        )
+        return range(binary_search(lookup[longer_col].values, val), lookup.shape[0])
 
     def natch_lower_values(val):
-        return list(
-            range(0, binary_search(lookup[longer_col].values, val))
-        )
+        return range(0, binary_search(lookup[longer_col].values, val))
 
     if how[0] == '<':
         match_entries = match_higher_values
@@ -727,7 +722,7 @@ def ineq_join(left: pd.DataFrame, right: pd.DataFrame,
 
     query_min, query_max = query[shorter_col].min(), query[shorter_col].max()
     lookup_min, lookup_max = lookup[longer_col].iloc[0], lookup[longer_col].iloc[-1]
-    ranges_overlap = query_max >= lookup_min or lookup_max >= query_min
+    ranges_overlap = query_min <= lookup_max and query_max >= lookup_min
     if not ranges_overlap:
         # If the relation between the left and right (query and lookup) intervals
         # is the same as the "how" operator (e.g. how = '<', query < lookup),
@@ -742,16 +737,34 @@ def ineq_join(left: pd.DataFrame, right: pd.DataFrame,
             merge_cols = _get_join_column_names(left, right, suffixes)
             return pd.DataFrame([], columns=merge_cols)
 
-    query = query.assign(
-        lookup_matching_idx=query[shorter_col].map(match_entries)
-    )
-    query = query.explode('lookup_matching_idx')
-    query.set_index('lookup_matching_idx', inplace=True)
+    # Try to save memory (overestimate result size as it's unknown at this point, but we need the type)
+    idx_type = 'int32' if query.shape[0] * lookup.shape[0] < np.iinfo(np.int32).max else 'int64'
 
-    result = query.join(lookup, how='inner', lsuffix=suffixes[0], rsuffix=suffixes[1])
+    def get_match_results(row) -> np.ndarray:
+        """
+        Find all matching lookup entries for current query row,
+        then unroll ("explode"/"flatten") list of matches to an array of index pairs.
+        row = [orig_idx, shorter join col value]
+        """
+        matched_indices = match_entries(row[1])
+        matched_indices_arr = np.zeros((len(matched_indices), 2), dtype=idx_type)
+        matched_indices_arr[:, 0] = row[0]
+        matched_indices_arr[:, 1] = matched_indices
+        return matched_indices_arr
+
+    matches_flattened = np.vstack(list(map(
+        get_match_results,
+        query.values
+    )))
+    matches_flattened = pd.DataFrame(
+        {'orig_idx' + suffixes[0]: matches_flattened[:, 0]},
+        index=matches_flattened[:, 1]
+    )
+
+    result = matches_flattened.join(lookup, how='inner', lsuffix=suffixes[0], rsuffix=suffixes[1])
 
     result.set_index('orig_idx' + suffixes[0], inplace=True)
-    result = shorter_df.drop(columns=shorter_col).join(
+    result = shorter_df.join(
         result, how='inner',
         lsuffix=suffixes[0], rsuffix=suffixes[1]
     )
