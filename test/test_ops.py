@@ -248,6 +248,166 @@ def test_theta_join_relation():
     assert result.compare(expected_result).empty
 
 
+def test_ineq_join():
+    left_df = pd.DataFrame(
+        list(zip(['a', 'b', 'c'], np.arange(10, 40, 10, dtype='int'))),
+        columns=['item', 'price']
+    ).sort_values('price', ascending=False).reset_index(drop=True)
+    right_df = pd.DataFrame(
+        list(zip(['w', 'x', 'y', 'z'], np.arange(10, 50, 10, dtype='int'))),
+        columns=['item', 'price']
+    ).sort_values('price', ascending=False).reset_index(drop=True)
+
+    expected_result = dance.theta_join(
+        left_df, right_df, on='price',
+        relation=lambda x, y: x < y,
+        suffixes=('_left', '_right')
+    )
+    expected_result = expected_result[
+        ['item_left', 'price_left', 'item_right', 'price_right']
+    ]
+    expected_result = expected_result.sort_values(['price_left', 'price_right'])
+    expected_result = expected_result.reset_index(drop=True)
+
+    result = dance.ineq_join(
+        left_df, right_df, on='price', how='<',
+        suffixes=('_left', '_right')
+    )
+    assert result.query('price_left < price_right').shape[0] == result.shape[0]
+
+    result = result[['item_left', 'price_left', 'item_right', 'price_right']]
+    result = result.sort_values(['price_left', 'price_right'])
+    result = result.reset_index(drop=True)
+    assert result.compare(expected_result).empty
+
+    # Flip sign and inequality operator
+    left_df['price'] *= -1
+    right_df['price'] *= -1
+
+    expected_result = dance.theta_join(
+        left_df, right_df, on='price',
+        relation=lambda x, y: x >= y,
+        suffixes=('_left', '_right')
+    )
+    expected_result = expected_result[
+        ['item_left', 'price_left', 'item_right', 'price_right']
+    ]
+    expected_result = expected_result.sort_values(['price_left', 'price_right'])
+    expected_result = expected_result.reset_index(drop=True)
+
+    result = dance.ineq_join(
+        left_df, right_df, on='price', how='>=',
+        suffixes=('_left', '_right')
+    )
+    assert result.query('price_left >= price_right').shape[0] == result.shape[0]
+
+    result = result[['item_left', 'price_left', 'item_right', 'price_right']]
+    result = result.sort_values(['price_left', 'price_right'])
+    result = result.reset_index(drop=True)
+    assert result.compare(expected_result).empty
+
+
+def test_ineq_join_temporal():
+    """
+    Say we have two detectors X and Y
+    that measure the same spike of activity, but with a delay.
+    We may wish to find all detections by X that occurred after detections in Y.
+    """
+    rng = np.random.default_rng(42)
+    scaling = int(1e5)
+    ref_tstamp = 1683816847 // scaling
+
+    detector_x = pd.DataFrame(
+        map(datetime.datetime.fromtimestamp,
+            rng.normal(ref_tstamp, 1, size=100) * scaling),
+        columns=['timestamp']
+    )
+    detector_y = pd.DataFrame(
+        map(datetime.datetime.fromtimestamp,
+            rng.normal(ref_tstamp + 2, 1, size=100) * scaling),
+        columns=['timestamp']
+    )
+
+    expected_result = dance.theta_join(
+        detector_x, detector_y, on='timestamp',
+        relation=lambda x, y: x > y
+    )
+    expected_result = expected_result.sort_values(['timestamp_x', 'timestamp_y']).reset_index(drop=True)
+
+    result = dance.ineq_join(detector_x, detector_y, on='timestamp', how='>')
+    result = result.sort_values(['timestamp_x', 'timestamp_y']).reset_index(drop=True)
+
+    assert result.query('timestamp_x > timestamp_y').shape[0] == result.shape[0]
+    assert result.compare(expected_result).empty
+
+
+def test_ineq_join_edges():
+    # Cartesian join
+    left_df = pd.DataFrame(
+        list(zip(['a', 'b', 'c'], np.array([1, 2, 3], dtype='int'))),
+        columns=['item', 'price']
+    ).sort_values('price', ascending=False).reset_index(drop=True)
+    right_df = pd.DataFrame(
+        list(zip(['w', 'x', 'y', 'z'], np.array([10, 20, 30], dtype='int'))),
+        columns=['item', 'price']
+    ).sort_values('price', ascending=False).reset_index(drop=True)
+
+    result = dance.ineq_join(
+        left_df, right_df, on='price', how='<',
+        suffixes=('_left', '_right')
+    )
+    assert result.shape[0] == left_df.shape[0] * right_df.shape[0]
+
+    result = dance.ineq_join(
+        left_df.assign(price = -left_df['price']),
+        right_df.assign(price = -right_df['price']),
+        on='price', how='>=',
+        suffixes=('_left', '_right')
+    )
+    assert result.shape[0] == left_df.shape[0] * right_df.shape[0]
+
+    # Empty join
+    result = dance.ineq_join(
+        left_df, right_df, on='price', how='>',
+        suffixes=('_left', '_right')
+    )
+    assert result.shape[0] == 0
+
+    result = dance.ineq_join(
+        left_df.assign(price=-left_df['price']),
+        right_df.assign(price=-right_df['price']),
+        on='price', how='<=',
+        suffixes=('_left', '_right')
+    )
+    assert result.shape[0] == 0
+
+
+@given(
+    len_a=st.integers(0, 10),
+    len_b=st.integers(0, 10),
+    len_overlap=st.integers(0, 10)
+)
+@seed(42)
+def test_ineq_join_overlap(len_a: int, len_b: int, len_overlap: int):
+    """
+    Generate two integer ranges A and B >= A with parametrized overlap length L
+
+    The total number of pairs in the ineq_join should always be
+    A * B  + Comb[L, 2] - L^2
+    """
+    assume(len_overlap <= min(len_a, len_b))
+
+    df_a = pd.DataFrame(range(0, len_a), columns=['val'])
+    df_b = pd.DataFrame(range(len_a - len_overlap, len_a - len_overlap + len_b), columns=['val'])
+
+    result = dance.ineq_join(df_a, df_b, on='val', how='<')
+    expected_result = dance.theta_join(df_a, df_b, on='val', relation=lambda x, y: x < y)
+
+    expected_len = len_a * len_b + math.comb(len_overlap, 2) - len_overlap**2
+    assert expected_len == result.shape[0]
+    assert expected_len == expected_result.shape[0]
+
+
 def test_theta_join_strings():
     keywords = pd.DataFrame(['a', 'the', 'xyzzy'], columns=['keyword'])
     phrases = pd.DataFrame([

@@ -13,9 +13,31 @@ import pandance as dance
 
 def main():
     for func in [
-        fuzzy_speed_random
+        # fuzzy_speed_identical,
+        # fuzzy_speed_random,
+        # ineq_join_random_unif,
+        ineq_join_overlap_cartesian,
+        # theta_join_overlap_cartesian
     ]:
         profile_function(func)
+
+
+def profile_function(func):
+    prof = cProfile.Profile()
+
+    prof.enable()
+    func()
+    prof.disable()
+
+    stat_stream = io.StringIO()
+    ps = (
+        pstats.Stats(prof, stream=stat_stream)
+        .sort_stats(SortKey.CUMULATIVE)
+    )
+    func_name = str(func).split(' ')[1]
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M")
+    ps.dump_stats(func_name + '_' + timestamp + '.prof')
+    print(stat_stream.getvalue())
 
 
 def fuzzy_speed_identical():
@@ -50,23 +72,54 @@ def fuzzy_speed_random():
     _ = dance.fuzzy_join(df_a, df_b, on='val', tol=0.1)
 
 
-def profile_function(func):
-    prof = cProfile.Profile()
+def ineq_join_random_unif():
+    """Overlap of two uniform distributions"""
+    rng = np.random.default_rng(12345)
 
-    prof.enable()
-    func()
-    prof.disable()
+    size_a = size_b = 10000
 
-    stat_stream = io.StringIO()
-    ps = (
-        pstats.Stats(prof, stream=stat_stream)
-        .sort_stats(SortKey.CUMULATIVE)
+    df_a = pd.DataFrame(
+        zip(range(size_a), rng.uniform(0, 100, size_a)),
+        columns=['idx', 'val']
     )
-    func_name = str(func).split(' ')[1]
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M")
-    ps.dump_stats(func_name + '_' + timestamp + '.prof')
-    print(stat_stream.getvalue())
+
+    df_b = pd.DataFrame(
+        zip(range(size_b), rng.uniform(0, 100, size_b)),
+        columns=['idx', 'val']
+    )
+    x = dance.ineq_join(df_a, df_b, on='val', how='<')
+    print(x.shape[0])
+
+
+def ineq_join_overlap_cartesian():
+    """
+    Generate two integer ranges A and B >= A with parametrized overlap length L
+    The total number of pairs in the result is A * B  + Comb[L, 2] - L^2
+    """
+    len_a = 3000
+    len_b = 3000
+    len_overlap = 1500
+
+    df_a = pd.DataFrame(range(0, len_a), columns=['val'])
+    df_b = pd.DataFrame(range(len_a - len_overlap, len_a - len_overlap + len_b), columns=['val'])
+
+    result = dance.ineq_join(df_a, df_b, on='val', how='<')
+
+
+def theta_join_overlap_cartesian():
+    """
+    Generate two integer ranges A and B >= A with parametrized overlap length L
+    The total number of pairs in the result is A * B  + Comb[L, 2] - L^2
+    """
+    len_a = 3000
+    len_b = 3000
+    len_overlap = 1500
+
+    df_a = pd.DataFrame(range(0, len_a), columns=['val'])
+    df_b = pd.DataFrame(range(len_a - len_overlap, len_a - len_overlap + len_b), columns=['val'])
+
+    result = dance.theta_join(df_a, df_b, on='val', relation=lambda a, b: a < b)
 
 
 if __name__ == '__main__':
-    fuzzy_speed_random()
+    main()

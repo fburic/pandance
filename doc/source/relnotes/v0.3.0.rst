@@ -1,0 +1,16 @@
+.. _relnotes030:
+
+What's new in 0.3.0 (May X, 2023)
+======================================
+
+Features
+--------
+
+* :py:meth:`Inequality join <pandance.ineq_join>` operation added,
+  matching one column's values that are less / greater than the other column's values.
+
+
+Documentation
+-------------
+
+* Clarified time complexity and worst case for :py:meth:`Fuzzy join <pandance.fuzzy_join>`

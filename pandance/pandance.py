@@ -1,5 +1,8 @@
+import bisect
 import datetime
+import itertools
 import logging
+import operator
 from decimal import Decimal, InvalidOperation
 from typing import Callable, Optional, Union
 
@@ -8,7 +11,8 @@ import numpy as np
 import pandas as pd
 import psutil
 
-__all__ = ['fuzzy_join', 'theta_join', '_estimate_mem_cost_cartesian']
+__all__ = ['fuzzy_join', 'theta_join', 'ineq_join',
+           '_estimate_mem_cost_cartesian', '_cartesian_join_with_mem_check']
 
 
 logger = logging.getLogger()
@@ -45,9 +49,15 @@ def fuzzy_join(left: pd.DataFrame, right: pd.DataFrame,
 
         This operation is a more efficient implementation
         compared to the generic :py:func:`theta_join`,
-        taking :math:`O((N+M) \\cdot \\log_2{M})` time,
-        where *M* is the length of the longest of the two DataFrames,
-        and *N* of the shorter one, instead of :math:`O(N \\cdot M)`.
+        taking an expected :math:`O((n + m) \\cdot \\log_2{m})` time,
+        assuming the majority of values in the longer join column are distinct
+        (accouting for the tolerance),
+        where *m* is the length of the longer of the two DataFrames,
+        and *n* of the shorter one, instead of :math:`O(n \\cdot m)`.
+
+        The worst case of the fuzzy join is still :math:`O(n \\cdot m)` in
+        the extreme case when both join colunms contain identical values
+        (accounting for tolerance), meaning everything matches with everything.
 
     :param left: The left-hand side Pandas DataFrame
     :param right: The right-hand side Pandas DataFrame
@@ -337,8 +347,8 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
         it's implemented as a Cartesian product of the two ``on`` columns
         in the input DataFrames,
         followed by a filter on the pairs for which the `theta` relation holds.
-        So the memory usage is :math:`O(N \\cdot M)`,
-        where `N` and `M` are the respective sizes of the ``on`` columns.
+        So the memory usage is :math:`O(n \\cdot m)`,
+        where `n` and `m` are the respective sizes of the ``on`` columns.
 
         A warning is logged if the estimated requirement is above 75%
         of available memory and a ``MemoryError`` is raised if the estimate exceeds
@@ -375,21 +385,21 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
 
     We have two tables with numerical entries x and y,
     and we want to find those combinations of x and y that
-    represent coordinates on the unit circle.
-
-    >>> import pandas as pd
-    >>> import pandance as dance
-    >>> horiz_vals = pd.DataFrame([0, 1, -1, 0.5], columns=['x'])
-    >>> vert_vals = pd.DataFrame([0, 1, -1, 0.5], columns=['y'])
-
-    Here
+    represent coordinates on the unit circle. Here
 
     .. math:: \\theta (x, y): x^2 + y^2 - 1 = 0
 
     >>> import math
-    >>> circle_coords = dance.theta_join(
+    >>> import pandas as pd
+    >>> import pandance as dance
+    ...
+    >>> horiz_vals = pd.DataFrame([0, 1, -1, 0.5], columns=['x'])
+    >>> vert_vals = pd.DataFrame([0, 1, -1, 0.5], columns=['y'])
+    ...
+    >>> dance.theta_join(
     ...     horiz_vals, vert_vals, left_on='x', right_on='y',
-    ...     relation = lambda x, y: math.isclose(x**2 + y**2 - 1, 0))
+    ...     relation = lambda x, y: math.isclose(x**2 + y**2 - 1, 0)
+    ... )
          x    y
     0  0.0  1.0
     1  0.0 -1.0
@@ -404,6 +414,7 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
 
     >>> import pandas as pd
     >>> import pandance as dance
+    ...
     >>> keywords = pd.DataFrame(['a', 'the', 'xyzzy'], columns=['keyword'])
     >>> phrases = pd.DataFrame([
     ...     'the quick brown fox jumps over the lazy dog',
@@ -416,7 +427,7 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
     ...     keywords, phrases, left_on='keyword', right_on='phrase',
     ...     relation = lambda kw, phrase: kw in phrase)
     >>> hits
-     keyword                                       phrase
+      keyword                                       phrase
     0       a  the quick brown fox jumps over the lazy dog
     1     the  the quick brown fox jumps over the lazy dog
 
@@ -427,10 +438,12 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
 
     >>> import pandas as pd
     >>> import pandance as dance
+    ...
     >>> carb_sources = pd.DataFrame([
     ...     ('rice', 34),
     ...     ('oat flakes', 32)
     ... ], columns=['item', 'price'])
+    ...
     >>> protein_sources = pd.DataFrame([
     ...     ('lentils', 25),
     ...     ('chickpeas', 38),
@@ -443,11 +456,11 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
 
     .. math:: \\theta (x, y): x < y
 
-    >>> possible_shopping_combos = dance.theta_join(
+    >>> dance.theta_join(
     ...     carb_sources, protein_sources, on='price',
     ...     relation = lambda price_carb, price_prot: price_carb < price_prot,
     ...     suffixes=('_carb', '_prot'))
-    >>> possible_shopping_combos
+    ...
         item_carb  price_carb  item_prot  price_prot
     0        rice          34  chickpeas          38
     1        rice          34  soy beans          48
@@ -455,25 +468,12 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
     3  oat flakes          32  soy beans          48
 
     .. tip::
-        This type of relation can be implemented more efficiently and will be
-        offered as a separate operation in release 0.3.0.
+        The :py:func:`ineq_join` operation implements a more efficient version
+        of this type of inequality join.
     """
     left_on, right_on = _validate_input_col_names(on, left_on, right_on)
 
-    est_mem = _estimate_mem_cost_cartesian(left[[left_on]], right[[right_on]])
-    avail_mem = psutil.virtual_memory()
-    avail_mem = (avail_mem.total - avail_mem.used) / 1024**2
-    if est_mem > avail_mem:
-        logger.error(f'The operation requires more memory than is currently available: {est_mem} MiB')
-        raise MemoryError
-    if est_mem / avail_mem > 0.75:
-        logger.warning(f'The operation requires over 75% ({est_mem}) of available memory')
-
-    # Cartesian join
-    result = pd.merge(left[[left_on]].reset_index(),
-                      right[[right_on]].reset_index(),
-                      how='cross',
-                      suffixes=suffixes)
+    result = _cartesian_join_with_mem_check(left, right, left_on, right_on, suffixes)
 
     def _safe_relation(x, y) -> bool:
         """Wrapper to guard against known exceptions"""
@@ -498,6 +498,270 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
         right.loc[result['index' + suffixes[1]]].reset_index(drop=True),
         left_index=True, right_index=True, suffixes=suffixes
     )
+    return result
+
+
+def _cartesian_join_with_mem_check(left: pd.DataFrame, right: pd.DataFrame,
+                                   left_on: str, right_on: str, suffixes: tuple) -> pd.DataFrame:
+    """
+    Wraps a Pandas cross (Cartesian) join with a memory usage check.
+    Throw ``MemoryError`` if estimated usage exceeds available memory.
+    """
+    est_mem = _estimate_mem_cost_cartesian(left[[left_on]], right[[right_on]])
+    avail_mem = psutil.virtual_memory()
+    avail_mem = (avail_mem.total - avail_mem.used) / 1024**2
+    if est_mem > avail_mem:
+        logger.error(f'The operation requires more memory than is currently available: {est_mem} MiB')
+        raise MemoryError
+    if est_mem / avail_mem > 0.75:
+        logger.warning(f'The operation requires over 75% ({est_mem}) of available memory')
+
+    # Cartesian join
+    result = pd.merge(left[[left_on]].reset_index(),
+                      right[[right_on]].reset_index(),
+                      how='cross',
+                      suffixes=suffixes)
+    return result
+
+
+def ineq_join(left: pd.DataFrame, right: pd.DataFrame,
+              how: str = '<=', on: str = None, left_on: str = None, right_on: str = None,
+              suffixes: Optional[tuple] = ('_x', '_y')) -> pd.DataFrame:
+    """
+    Perform an inequality join on the (single) specified left and right columns,
+    for example::
+
+        ineq_join(df_a, df_b, '<=', on='value')
+
+    will match all ``(df_a['value'] <= df_b['value'])`` pairs.
+
+    Valid column types are those that support comparisons (numbers, strings, dateime, etc.).
+
+    Note that the operation is not guaranteed to preserve the row or column order
+    of the input dataframes, in order to save time.
+
+    .. note::
+
+        The time cost of this operation is
+        :math:`O\\left(n \\log_2{m} + m\\log_2{m} + Q \\right)`,
+        where *n* and *m* are the lengths of the shorter and longer dataframe, respectively,
+        and *Q* is the total number of matching entries in the join.
+        Thus, the *worst-case* time cost is :math:`O(n \\cdot m)`, which happens
+        when all values on the right-hand side of e.g. ``<`` are larger than those on
+        the left-hand side (resulting in everything matching with everything),
+        and analogously for ``>``.
+        When *Q* is small (or constant with respect to growing *n* and *m*),
+        the time cost becomes :math:`O((n + m) \\cdot \\log_2{m})`.
+
+    :param left: The left-hand side Pandas DataFrame
+    :param right: The right-hand side Pandas DataFrame
+    :param how: The inequality operator between the two columns.
+                Can be ``<``, ``<=``, ``>=``, or ``>``.
+    :param on: (Single) column name to join on, passed to ``pandas.merge()``
+    :param left_on: (Single) column name to join on in the left DataFrame,
+        passed to ``pandas.merge()``
+    :param right_on: (Single) column name to join on in the right DataFrame,
+        passed to ``pandas.merge()``
+    :param suffixes: A length-2 sequence where each element is optionally
+        a string indicating the suffix to add to overlapping column names
+        in left and right respectively, passed to ``pandas.merge()``
+    :return: The inequijoin of the two DataFrames.
+
+    .. seealso::
+
+        :py:func:`theta_join` : A gneric join that allows user-specified joining conditions.
+
+    Examples
+    --------
+
+    **Temporal data**
+
+    Say we want to find connecting flights
+    between locations A and C with a layover in location B.
+    We have a table with flights from A to B, and another from B to C:
+    Valid connections are those flights that arrive in B before a departing flight from B:
+
+    >>> import pandas as pd
+    >>> import pandance as dance
+    ...
+    >>> flights_ab = pd.DataFrame([
+    ...     ('2023-01-01 08:00', '2023-01-01 10:00'),
+    ...     ('2023-01-01 12:00', '2023-01-01 14:00'),
+    ...     ('2023-01-01 16:00', '2023-01-01 18:00'),
+    ...     ('2023-01-01 20:00', '2023-01-01 22:00')
+    ... ], columns=['dep', 'arr'], dtype='datetime64[ns]')
+    ...
+    >>> flights_bc = pd.DataFrame([
+    ...     ('2023-01-01 09:00', '2023-01-01 12:00'),
+    ...     ('2023-01-01 14:00', '2023-01-01 17:00'),
+    ...     ('2023-01-01 18:00', '2023-01-01 21:00'),
+    ...     ('2023-01-01 21:00', '2023-01-02 00:00')
+    ... ], columns=['dep', 'arr'], dtype='datetime64[ns]')
+    ...
+    >>> dance.ineq_join(flights_ab, flights_bc,
+    ...                 left_on='arr', right_on='dep', how='<',
+    ...                 suffixes=('_ab', '_bc'))
+    ...
+                   dep_ab                 arr_ab                  dep_bc                  arr_bc
+    0 2023-01-01 08:00:00    2023-01-01 10:00:00     2023-01-01 14:00:00     2023-01-01 17:00:00
+    0 2023-01-01 08:00:00    2023-01-01 10:00:00     2023-01-01 18:00:00     2023-01-01 21:00:00
+    1 2023-01-01 12:00:00    2023-01-01 14:00:00     2023-01-01 18:00:00     2023-01-01 21:00:00
+    0 2023-01-01 08:00:00    2023-01-01 10:00:00     2023-01-01 21:00:00     2023-01-02 00:00:00
+    1 2023-01-01 12:00:00    2023-01-01 14:00:00     2023-01-01 21:00:00     2023-01-02 00:00:00
+    2 2023-01-01 16:00:00    2023-01-01 18:00:00     2023-01-01 21:00:00     2023-01-02 00:00:00
+
+    **Numerical data**
+
+    We're making a groceries list, and we're balancing macronutrients and costs.
+
+    >>> carb_sources = pd.DataFrame([
+    ...     ('rice', 34),
+    ...     ('oat flakes', 32)
+    ... ], columns=['item', 'price'])
+    ...
+    >>> protein_sources = pd.DataFrame([
+    ...     ('lentils', 25),
+    ...     ('chickpeas', 38),
+    ...     ('soy beans', 48)
+    ... ], columns=['item', 'price'])
+
+    We want to stock up on a single carb and protein source,
+    but we *want the carbs to cost less than the proteins*.
+    This can be expressed as the following inequality join:
+
+    >>> dance.ineq_join(
+    ...     carb_sources, protein_sources, on='price', how = '<',
+    ...     suffixes=('_carb', '_prot'))
+    ...
+        item_carb  price_carb  price_prot  item_prot
+    1        rice          34          38  chickpeas
+    1  oat flakes          32          38  chickpeas
+    2        rice          34          48  soy beans
+    2  oat flakes          32          48  soy beans
+
+
+    **Strings**
+
+    Suppose we have a small sample of strings and want to find all strings that are
+    sorted lower in a large database of strings (which here is constructed randomly).
+
+    >>> import random
+    >>> import string
+    >>> random.seed(42)
+    ...
+    >>> query = pd.DataFrame(['bbb', 'ccc'], columns=['string'])
+    ...
+    >>> database = pd.DataFrame(
+    ...     [''.join(random.choices(string.ascii_lowercase, k=3)) for _ in range(10)],
+    ...     columns=['string']
+    ... )
+
+    In this case, the random database only has a few strings of lower ordering than our query
+
+    >>> dance.ineq_join(query, database, how='>', on='string', suffixes=('_query', '_db'))
+      string_query string_db
+    3          bbb       afn
+    3          ccc       afn
+    4          bbb       afq
+    4          ccc       afq
+    """
+    allowed_rels = ['<', '<=', '>=', '>']
+    opposite_rel = {'<': '>', '<=': '>=', '>': '<', '>=': '<='}
+    cmp_op = {'<': operator.lt, '<=': operator.le, '>': operator.gt, '>=': operator.ge}
+
+    if how not in allowed_rels:
+        raise ValueError('The inequality "how" relation can only be: ',
+                         ', '.join(allowed_rels))
+    left_on, right_on = _validate_input_col_names(on, left_on, right_on)
+    if left.shape[0] == 0 or right.shape[0] == 0:
+        return _empty_df(left_on, right_on, suffixes)
+
+    if left.shape[0] <= right.shape[0]:
+        shorter_col, longer_col = left_on, right_on
+        shorter_df, longer_df = left, right
+    else:
+        longer_col, shorter_col = left_on, right_on
+        longer_df, shorter_df = left, right
+        suffixes = suffixes[::-1]
+        how = opposite_rel[how]
+
+    # We take advantage of the transitive nature of the operator on join values.
+    # Taking A (shorter df, "query") < B (longer df, "lookup"):
+    #
+    # 1. Sort lookup
+    # 2. For each entry a in A, search for first b in B s.t. a < b
+    #    using binary search (worst case: log B)
+    # 3. A match a < b implies all B entries y > b match => add (a, y:B) pairs
+    #
+    # We could in principle symmetrically add all pairs (x:A, y:B) where x <= a and y <=b,
+    # but it turned out that the pure Python implementation of that procedure
+    # was x2 slower than just mapping the binary search lookup to the A dataframe join column.
+    query = shorter_df[[shorter_col]].reset_index()
+    query = query.rename(columns={'index': 'orig_idx' + suffixes[0]})
+    lookup = longer_df[[longer_col]].sort_values(longer_col).reset_index()
+    lookup = lookup.rename(columns={'index': 'orig_idx' + suffixes[1]})
+
+    def match_higher_values(val):
+        return list(
+            range(binary_search(lookup[longer_col].values, val),
+                  lookup.shape[0])
+        )
+
+    def natch_lower_values(val):
+        return list(
+            range(0, binary_search(lookup[longer_col].values, val))
+        )
+
+    if how[0] == '<':
+        match_entries = match_higher_values
+        if how == '<':
+            binary_search = bisect.bisect_right
+        else:
+            binary_search = bisect.bisect_left
+    else:
+        match_entries = natch_lower_values
+        if how == '>':
+            binary_search = bisect.bisect_left
+        else:
+            binary_search = bisect.bisect_right
+
+    query_min, query_max = query[shorter_col].min(), query[shorter_col].max()
+    lookup_min, lookup_max = lookup[longer_col].iloc[0], lookup[longer_col].iloc[-1]
+    ranges_overlap = query_max >= lookup_min or lookup_max >= query_min
+    if not ranges_overlap:
+        # If the relation between the left and right (query and lookup) intervals
+        # is the same as the "how" operator (e.g. how = '<', query < lookup),
+        # the result is a Cartesian join (everything matches),
+        # otherwise it's the empty set (nothing matches).
+        # No interval overlap guarantees:
+        # - safe to allow for -or-equal operators as well
+        # - no need to switch interval ends between checking (query < lookup) and (query > lookup)
+        if cmp_op[how](query_max, lookup_min):
+            return _cartesian_join_with_mem_check(left, right, left_on, right_on, suffixes)
+        else:
+            merge_cols = _get_join_column_names(left, right, suffixes)
+            return pd.DataFrame([], columns=merge_cols)
+
+    query = query.assign(
+        lookup_matching_idx=query[shorter_col].map(match_entries)
+    )
+    query = query.explode('lookup_matching_idx')
+    query.set_index('lookup_matching_idx', inplace=True)
+
+    result = query.join(lookup, how='inner', lsuffix=suffixes[0], rsuffix=suffixes[1])
+
+    result.set_index('orig_idx' + suffixes[0], inplace=True)
+    result = shorter_df.drop(columns=shorter_col).join(
+        result, how='inner',
+        lsuffix=suffixes[0], rsuffix=suffixes[1]
+    )
+
+    result.set_index('orig_idx' + suffixes[1], inplace=True)
+    result = result.join(
+        longer_df.drop(columns=longer_col), how='inner',
+        lsuffix=suffixes[0], rsuffix=suffixes[1]
+    )
+
     return result
 
 
@@ -530,3 +794,21 @@ def _validate_input_col_names(on, left_on, right_on) -> tuple:
     if isinstance(left_on, list) or isinstance(left_on, tuple):
         raise KeyError('Pandance operation only supports joining on a single column.')
     return left_on, right_on
+
+
+def _get_join_column_names(left: pd.DataFrame, right: pd.DataFrame, suffixes: tuple) -> list:
+    """
+    Return only the header (column names) of a join operation.
+    """
+    merge_cols = []
+    right_cols = set(right.columns)
+    for col_name in left.columns:
+        if col_name in right_cols:
+            merge_cols.append(col_name + suffixes[0])
+            right_cols -= {col_name}
+            right_cols |= {col_name + suffixes[1]}
+        else:
+            merge_cols.append(col_name)
+    for col_name in right_cols:
+        merge_cols.append(col_name)
+    return merge_cols

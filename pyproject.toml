@@ -12,7 +12,7 @@ packages = ["pandance"]
 
 [project]
 name = "pandance"
-version = "0.2.1"
+version = "0.3.0"
 authors = [
   { name="Filip Buric" }
 ]
