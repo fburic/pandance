@@ -255,7 +255,8 @@ def test_ineq_join():
     ).sort_values('price', ascending=False).reset_index(drop=True)
     right_df = pd.DataFrame(
         list(zip(['w', 'x', 'y', 'z'], np.arange(10, 50, 10, dtype='int'))),
-        columns=['item', 'price']
+        columns=['item', 'price'],
+        index=list('abcd')
     ).sort_values('price', ascending=False).reset_index(drop=True)
 
     expected_result = dance.theta_join(
