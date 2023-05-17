@@ -121,14 +121,15 @@ respectively, sd=1) with a tolerance of 0.1, which resulted in
 
 .. table::
     :width: 50%
-    :widths: 25 15 20
+    :widths: 25 15 25
 
-    ==================================   ===========   ===========
-    Implementation                       time (real)   peak memory
-    ==================================   ===========   ===========
-    pandance.fuzzy_join()                2.485s          23.2 MB
-    fuzzyjoin::difference_inner_join()   7.461s        3099.2 MB
-    ==================================   ===========   ===========
+    +------------------------------------+-----------+-------------+
+    | Implementation                     | time [s]  | memory [MB] |
+    +====================================+===========+=============+
+    | pandance.fuzzy_join()              |  2.08     |    17.2     |
+    +------------------------------------+-----------+-------------+
+    | fuzzyjoin::difference_inner_join() |  4.24     |   3070      |
+    +------------------------------------+-----------+-------------+
 
 .. admonition:: Click to see more technical details about the performance aspect.
     :class: toggle
@@ -146,17 +147,22 @@ respectively, sd=1) with a tolerance of 0.1, which resulted in
     from two normal distributions (means -2 and 2, respectively, and sd = 1).
     The fuzzy join is performed with a tolerance of 0.1 on these two sets,
     resulting in a sort of fuzzy intersection of the populations.
-    (The measurements above include the data generation.)
+    Only the join operation time and memory are shown.
+
+    **Pandance (Python) measurement**:
 
     .. code-block:: shell
 
-        time python test/performance.py
-        valgrind --tool=massif python test/performance.py
+        # Speed
+        python test/performance.py
+        snakeviz $(ls -1rt | tail -n 1)
 
-    .. code-block:: shell
+        # Memory
+        # (decorated fuzzy_speed_random with @profile)
+        python -m memory_profiler test/performance.py
 
-        time /usr/bin/R --slave --no-save --no-restore --no-site-file --no-environ -f test/fuzzy_perf.R
-        # Memory profiling done with RStudio
+    **fuzzyjoin (R) measurement**: Used RStudio's profiling
+    (``profvis`` package under the hood)
 
     The profiling scripts are available in the Pandance
     `repo <https://github.com/fburic/pandance/tree/main/test>`_.
