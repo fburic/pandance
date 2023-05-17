@@ -4,7 +4,7 @@ import itertools
 import logging
 import operator
 from decimal import Decimal, InvalidOperation
-from typing import Callable, Optional, Union
+from typing import Callable, Optional, Union, Iterable
 
 import intervaltree as itree
 import numpy as np
@@ -191,6 +191,7 @@ def fuzzy_join(left: pd.DataFrame, right: pd.DataFrame,
 
     interval_tree = _build_interval_tree(longer_df[[longer_col]], tol, epsilon)
     index_association = _get_fuzzy_match_indices(shorter_df[[shorter_col]], interval_tree)
+    index_association = list(index_association)
     if not index_association:
         return _empty_df(left_on, right_on, suffixes)
     index_assoc_short, index_assoc_long = zip(*index_association)
@@ -202,10 +203,7 @@ def fuzzy_join(left: pd.DataFrame, right: pd.DataFrame,
     # Reflect order of input DataFrames
     if swap_col_order:
         rows_short, rows_long = rows_long, rows_short
-    join_result = pd.merge(
-        rows_short, rows_long,
-        left_index=True, right_index=True, suffixes=suffixes
-    )
+    join_result = rows_short.join(rows_long, lsuffix=suffixes[0], rsuffix=suffixes[1])
     return join_result
 
 
@@ -242,17 +240,13 @@ def _build_interval_tree(col_df: pd.DataFrame,
 
 
 def _get_fuzzy_match_indices(df_col: pd.DataFrame,
-                             interval_tree: itree.IntervalTree) -> list:
-    index_assoc = []
+                             interval_tree: itree.IntervalTree) -> Iterable:
     colname = df_col.columns[0]
-    df_col.apply(
-        lambda row: [index_assoc.append(match)
-                     for match in _matching_indices_for_value(row[colname],
-                                                              row.name,
-                                                              interval_tree)],
+    index_assoc = df_col.apply(
+        lambda row: _matching_indices_for_value(row[colname], row.name, interval_tree),
         axis='columns'
     )
-    return index_assoc
+    return itertools.chain.from_iterable(index_assoc.values)
 
 
 def _matching_indices_for_value(val, val_idx, interval_tree: itree.IntervalTree):
