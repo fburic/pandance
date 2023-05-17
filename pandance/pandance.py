@@ -695,25 +695,6 @@ def ineq_join(left: pd.DataFrame, right: pd.DataFrame,
     lookup = longer_df[[longer_col]].sort_values(longer_col).reset_index()
     lookup = lookup.rename(columns={'index': 'orig_idx' + suffixes[1]})
 
-    def match_higher_values(val):
-        return range(binary_search(lookup[longer_col].values, val), lookup.shape[0])
-
-    def natch_lower_values(val):
-        return range(0, binary_search(lookup[longer_col].values, val))
-
-    if how[0] == '<':
-        match_entries = match_higher_values
-        if how == '<':
-            binary_search = bisect.bisect_right
-        else:
-            binary_search = bisect.bisect_left
-    else:
-        match_entries = natch_lower_values
-        if how == '>':
-            binary_search = bisect.bisect_left
-        else:
-            binary_search = bisect.bisect_right
-
     query_min, query_max = query[shorter_col].min(), query[shorter_col].max()
     lookup_min, lookup_max = lookup[longer_col].iloc[0], lookup[longer_col].iloc[-1]
     ranges_overlap = query_min <= lookup_max and query_max >= lookup_min
@@ -734,20 +715,19 @@ def ineq_join(left: pd.DataFrame, right: pd.DataFrame,
     # Try to save memory (overestimate result size as it's unknown at this point, but we need the type)
     idx_type = 'int32' if query.shape[0] * lookup.shape[0] < np.iinfo(np.int32).max else 'int64'
 
-    def get_match_results(row) -> np.ndarray:
-        """
-        Find all matching lookup entries for current query row,
-        then unroll ("explode"/"flatten") list of matches to an array of index pairs.
-        row = [orig_idx, shorter join col value]
-        """
-        matched_indices = match_entries(row[1])
-        matched_indices_arr = np.zeros((len(matched_indices), 2), dtype=idx_type)
-        matched_indices_arr[:, 0] = row[0]
-        matched_indices_arr[:, 1] = matched_indices
-        return matched_indices_arr
+    if how[0] == '<':
+        if how == '<':
+            match_entries = _match_higher_values_right
+        else:
+            match_entries = _match_higher_values_left
+    else:
+        if how == '>':
+            match_entries = _natch_lower_values_left
+        else:
+            match_entries = _natch_lower_values_right
 
     matches_flattened = np.vstack(list(map(
-        get_match_results,
+        lambda row: _get_ineq_match_results(match_entries, lookup, longer_col, row, idx_type),
         query.values
     )))
     matches_flattened = pd.DataFrame(
@@ -770,6 +750,36 @@ def ineq_join(left: pd.DataFrame, right: pd.DataFrame,
     )
 
     return result
+
+
+def _get_ineq_match_results(match_entries: Callable, lookup: pd.DataFrame, longer_col: str,
+                            row, idx_type) -> np.ndarray:
+    """
+    Find all matching lookup entries for current query row,
+    then unroll ("explode"/"flatten") list of matches to an array of index pairs.
+    row = [orig_idx, shorter join col value]
+    """
+    matched_indices = match_entries(row[1], lookup, longer_col)
+    matched_indices_arr = np.zeros((len(matched_indices), 2), dtype=idx_type)
+    matched_indices_arr[:, 0] = row[0]
+    matched_indices_arr[:, 1] = matched_indices
+    return matched_indices_arr
+
+
+def _match_higher_values_left(val, lookup, longer_col):
+    return range(bisect.bisect_left(lookup[longer_col].values, val), lookup.shape[0])
+
+
+def _match_higher_values_right(val, lookup, longer_col):
+    return range(bisect.bisect_right(lookup[longer_col].values, val), lookup.shape[0])
+
+
+def _natch_lower_values_left(val, lookup, longer_col):
+    return range(0, bisect.bisect_left(lookup[longer_col].values, val))
+
+
+def _natch_lower_values_right(val, lookup, longer_col):
+    return range(0, bisect.bisect_right(lookup[longer_col].values, val))
 
 
 def _estimate_mem_cost_cartesian(a: pd.DataFrame, b: pd.DataFrame) -> int:

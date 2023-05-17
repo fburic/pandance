@@ -14,9 +14,9 @@ import pandance as dance
 def main():
     for func in [
         # fuzzy_speed_identical,
-        fuzzy_speed_random,
+        # fuzzy_speed_random,
         # ineq_join_random_unif,
-        # ineq_join_overlap_cartesian,
+        ineq_join_overlap_cartesian,
         # theta_join_overlap_cartesian
     ]:
         profile_function(func)

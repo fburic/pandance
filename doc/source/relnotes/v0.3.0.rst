@@ -10,6 +10,12 @@ Features
   matching one column's values that are less / greater than the other column's values.
 
 
+Performance
+-----------
+
+* Slight performance improvement for :py:meth:`Fuzzy join <pandance.fuzzy_join>`
+
+
 Documentation
 -------------
 

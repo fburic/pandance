@@ -281,7 +281,7 @@ See the documentation of :py:meth:`ineq_join <pandance.ineq_join>` for more deta
 Fro much better performance however, the excellent R
 `data.table <https://r-datatable.com>`_ package is recommended, as it supports
 inequality joins (which it implements in a similar fashion to ``ineq_join``)
-but is two orders of magnitude faster, as shown below on the same dataset.
+but is an order of magnitude faster, as shown below on the same dataset.
 
 .. table::
     :width: 65%
@@ -290,7 +290,7 @@ but is two orders of magnitude faster, as shown below on the same dataset.
     +--------------------------------------------------------+-----------+-------------+
     | Implementation                                         | time [s]  | memory [MB] |
     +========================================================+===========+=============+
-    | ``pandance.ineq_join``                                 | 9.26      | 247         |
+    | ``pandance.ineq_join``                                 | 3.24      | 248         |
     +--------------------------------------------------------+-----------+-------------+
     | ``pandance.theta_join`` (cross join with ineq. filter) | 244       | 1000        |
     +--------------------------------------------------------+-----------+-------------+
