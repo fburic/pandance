@@ -449,27 +449,32 @@ def test_mem_usage():
     unit_size_idx = 8
 
     a = pd.DataFrame.from_records(
-        np.arange(len_a, dtype=np.uint16).reshape(-1, 1),
-        columns=['data']
+        zip(np.arange(len_a, dtype=np.uint16),
+            np.arange(len_a, dtype=np.uint16)),
+        columns=['idx', 'data'], index='idx'
     )
-
-    b = pd.DataFrame.from_records(
+    b = pd.DataFrame(
         np.arange(100, 100 + len_b, dtype=np.uint16).reshape(-1, 1),
         columns=['data']
     )
 
     # Formulas derived for this test. Should be equivalent to generic func calc
-    exp_idx_size = unit_size_idx * len_a * len_b
+    if pd.__version__ >= '2.0.0':
+        # The more space efficient RangeIndex is used by default
+        exp_idx_size = 128
+    else:
+        exp_idx_size = unit_size_idx * len_a * len_b
+
     exp_col_size = 2 * unit_size_data * len_a * len_b
-    expected_size = (exp_idx_size + exp_col_size) / 1024**2
+    expected_size = exp_idx_size + exp_col_size
     if pd.__version__ < '1.4.0':
         expected_size *= 2
 
     cartesian_join = pd.merge(a[['data']], b[['data']], how='cross')
-    cartesian_cost = cartesian_join.memory_usage(deep=True).sum() / 1024**2
+    cartesian_cost = cartesian_join.memory_usage(deep=True, index=True).sum()
 
-    est_cost = dance._estimate_mem_cost_cartesian(a, b)
+    est_cost = dance._estimate_mem_cost_cartesian(a, b) * 1024**2
     # Triangle approximate equality just to be paranoid about float errors
-    assert np.isclose(cartesian_cost, expected_size)
+    assert np.isclose(expected_size, cartesian_cost)
     assert np.isclose(expected_size, est_cost)
     assert np.isclose(cartesian_cost, est_cost)

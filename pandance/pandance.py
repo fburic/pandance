@@ -500,6 +500,8 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
             axis='columns'
         )
     ]
+    if result.shape[0] == 0:
+        return result
 
     # Get other column items from input DataFrames
     result = pd.merge(
@@ -811,9 +813,15 @@ def _estimate_mem_cost_cartesian(a: pd.DataFrame, b: pd.DataFrame) -> int:
     cost_b = b.memory_usage(index=True, deep=True).values
     cost_cols = cost_a[1] * b.shape[0] + cost_b[1] * a.shape[0]
 
-    # Indices are sometimes stored more efficiently, e.g. RangeIndex,
-    # so take the max unit cost of either index and multiply by resulting size
-    cost_idx = max(a.index.values.itemsize, b.index.values.itemsize) * a.shape[0] * b.shape[0]
+    if pd.__version__ >= '2.0.0' and (isinstance(a.index, pd.RangeIndex)
+                                      or isinstance(b.index, pd.RangeIndex)):
+        # RangeIndex is used by default in new DataFrames
+        cost_idx = 128
+    else:
+        # Indices are sometimes stored more efficiently, e.g. RangeIndex,
+        # so take the max unit cost of either index and multiply by resulting size
+        cost_idx = max(a.index.values.itemsize, b.index.values.itemsize) * a.shape[0] * b.shape[0]
+
     return (cost_cols + cost_idx) / 1024**2
 
 
