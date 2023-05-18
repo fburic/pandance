@@ -15,7 +15,8 @@ enabling powerful and efficient joins (aka merges).
 Pandance extends the set of standard join operations in pandas
 (inner, outer, cross, left, right) with:
 
-- **fuzzy joins**: Match columns with a tolerance
+- **fuzzy joins**: Match columns with a tolerance. Supports numerical and datetime values.
+- **inequality join**: Match one column's values that are less / greater than the other column's values.
 - **[theta joins](https://en.wikipedia.org/wiki/Relational_algebra#%CE%B8-join_and_equijoin)**:
   Allows the user to specify arbitrary matching conditions on which to join
 
@@ -31,7 +32,3 @@ pip install pandance
 ## Usage
 
 See the [documentation](https://pandance.readthedocs.io)
-
-## TODO
-
-- `[0.3.0]` inequality join: efficient implementation of non-equijoins using inequalities (<, >)

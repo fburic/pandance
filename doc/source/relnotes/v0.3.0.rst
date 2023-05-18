@@ -8,12 +8,15 @@ Features
 
 * :py:meth:`Inequality join <pandance.ineq_join>` operation added,
   matching one column's values that are less / greater than the other column's values.
+* Change :py:meth:`<pandance.theta_join>` arguments (and documentation)
+  to use the term "condition" instead of "relation".
 
 
 Performance
 -----------
 
-* Slight performance improvement for :py:meth:`Fuzzy join <pandance.fuzzy_join>`
+* Slight performance improvements for :py:meth:`<pandance.fuzzy_join>`
+  :py:meth:`<pandance.theta_join>`
 
 
 Documentation
