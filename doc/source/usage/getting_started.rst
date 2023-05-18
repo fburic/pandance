@@ -16,6 +16,10 @@ Pandance is available from PyPI
 
    pip install pandance
 
+Pandance has been tested with pandas version as low as 1.2.0, though please consider
+upgrading to >= 2.0.0 for significant performance improvements, both in terms
+of speed and memory usage.
+
 
 Basic Usage
 -----------

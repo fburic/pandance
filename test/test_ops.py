@@ -465,10 +465,13 @@ def test_mem_usage():
     else:
         exp_idx_size = unit_size_idx * len_a * len_b
 
-    exp_col_size = 2 * unit_size_data * len_a * len_b
+    if pd.__version__ >= '1.4.0':
+        exp_col_size = 2 * unit_size_data * len_a * len_b
+    else:
+        # silent upcasting of left column to int64 in cross join result
+        exp_col_size = len_a * len_b * (unit_size_data + 8)
+
     expected_size = exp_idx_size + exp_col_size
-    if pd.__version__ < '1.4.0':
-        expected_size *= 2
 
     cartesian_join = pd.merge(a[['data']], b[['data']], how='cross')
     cartesian_cost = cartesian_join.memory_usage(deep=True, index=True).sum()
