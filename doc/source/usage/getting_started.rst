@@ -161,6 +161,8 @@ respectively, sd=1) with a tolerance of 0.1, which resulted in
         # (decorated fuzzy_speed_random with @profile)
         python -m memory_profiler test/performance.py
 
+    Versions: Python 3.8, pandas 1.4.2, numpy 1.22.3, intervaltree 3.1.0
+
     **fuzzyjoin (R) measurement**: Used RStudio's profiling
     (``profvis`` package under the hood)
 
@@ -325,6 +327,8 @@ but is an order of magnitude faster, as shown below on the same dataset.
         # Memory
         # (decorated ineq_join_overlap_cartesian with @profile)
         python -m memory_profiler test/performance.py
+
+    Versions: Python 3.8, pandas 1.4.2, numpy 1.22.3
 
     **data.table (R) measurement**: Used RStudio's profiling
     (``profvis`` package under the hood)
