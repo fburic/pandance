@@ -3,6 +3,7 @@ import datetime
 import itertools
 import logging
 import operator
+import warnings
 from decimal import Decimal, InvalidOperation
 from typing import Callable, Optional, Union, Iterable
 
@@ -318,29 +319,30 @@ def _empty_df(left_on, right_on, suffixes):
 
 
 def theta_join(left: pd.DataFrame, right: pd.DataFrame,
-               relation: Callable[..., bool],
+               condition: Callable[..., bool] = None,
                on: str = None, left_on: str = None, right_on: str = None,
-               suffixes: Optional[tuple] = ('_x', '_y')) -> pd.DataFrame:
+               suffixes: Optional[tuple] = ('_x', '_y'),
+               relation: Callable[..., bool] = None) -> pd.DataFrame:
     """
-    Perform an inner join with a user-specified matching ``relation``.
+    Perform an inner join with a user-specified match ``condition``.
 
-    A *theta-join* is a join operation in which rows in the join columns
-    are matched using an arbitrary
-    `relation <https://en.wikipedia.org/wiki/Binary_relation>`_  θ
-    that holds between the row entries,
+    A *theta-join* is an operation in which rows in the join columns
+    are matched using an arbitrary condition θ
+    that holds between the row entries
+    (i.e. the pair is in a `binary relation <https://en.wikipedia.org/wiki/Binary_relation>`_).
     It generalizes equijoins (where θ = equality).
     See examples below and the
     `Wikipedia article <https://en.wikipedia.org/wiki/Relational_algebra#%CE%B8-join_and_equijoin>`_,
     though in Pandance θ is not limited to the typical set of relations
     {<, <=, =, !=, >=, >}. Rather, the user may specify any boolean-valued function
-    as a ``relation``, as described below.
+    as a ``condition``, as described below.
 
     .. warning::
         This operation is **memory-intensive!**
-        Since this is a generic operation for any given `theta` relation,
+        Since this is a generic operation for any given `theta` condition,
         it's implemented as a Cartesian product of the two ``on`` columns
         in the input DataFrames,
-        followed by a filter on the pairs for which the `theta` relation holds.
+        followed by a filter on the pairs for which the `theta` condition holds.
         So the memory usage is :math:`O(n \\cdot m)`,
         where `n` and `m` are the respective sizes of the ``on`` columns.
 
@@ -350,9 +352,9 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
 
     :param left: The left-hand side Pandas DataFrame
     :param right: The right-hand side Pandas DataFrame
-    :param relation: a **function** or callable object
+    :param condition: a **function** or callable object
         of two parameters ``x``, ``y`` that returns ``True``
-        if ``x`` is in that relation with ``y``, else ``False``.
+        if the pair ``(x, y)`` fulfills the condition, else ``False``.
         E.g. ``divides(2, 8) == True``.
     :param on: (Single) column name to join on, passed to ``pandas.merge()``
     :param left_on: (Single) column name to join on in the left DataFrame,
@@ -368,14 +370,17 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
     .. seealso::
 
         :py:func:`fuzzy_join`
-            A special case of θ-join, where θ is :math:`\\approx`.
-            It's offered as a separate function since it can be implemented more efficiently.
-            Consider using it if you're matching numerical values with a tolerance.
+            An efficient implementation of the special case of θ-join where θ is :math:`\\approx`.
+
+        :py:func:`ineq_join`
+            An efficient implementation of the special case of θ-join
+            where θ is an inequality {<, <=, =, >=, >} between the join columns.
+
 
     Examples
     --------
 
-    **Numerical relation**
+    **Numerical condition**
 
     We have two tables with numerical entries x and y,
     and we want to find those combinations of x and y that
@@ -392,7 +397,7 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
     ...
     >>> dance.theta_join(
     ...     horiz_vals, vert_vals, left_on='x', right_on='y',
-    ...     relation = lambda x, y: math.isclose(x**2 + y**2 - 1, 0)
+    ...     condition = lambda x, y: math.isclose(x**2 + y**2 - 1, 0)
     ... )
          x    y
     0  0.0  1.0
@@ -419,14 +424,14 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
 
     >>> hits = dance.theta_join(
     ...     keywords, phrases, left_on='keyword', right_on='phrase',
-    ...     relation = lambda kw, phrase: kw in phrase)
+    ...     condition = lambda kw, phrase: kw in phrase)
     >>> hits
       keyword                                       phrase
     0       a  the quick brown fox jumps over the lazy dog
     1     the  the quick brown fox jumps over the lazy dog
 
 
-    **Inequality relation**
+    **Inequality condition**
 
     We're making a groceries list, and we're balancing macronutrients and costs.
 
@@ -452,7 +457,7 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
 
     >>> dance.theta_join(
     ...     carb_sources, protein_sources, on='price',
-    ...     relation = lambda price_carb, price_prot: price_carb < price_prot,
+    ...     condition = lambda price_carb, price_prot: price_carb < price_prot,
     ...     suffixes=('_carb', '_prot'))
     ...
         item_carb  price_carb  item_prot  price_prot
@@ -465,14 +470,24 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
         The :py:func:`ineq_join` operation implements a more efficient version
         of this type of inequality join.
     """
+    if condition is None and relation is None:
+        raise Exception('Missing condition.')
+    if condition is None:
+        warnings.warn("theta_join(): The 'relation' argument is deprecated. "
+                      "Use 'condition' instead. "
+                      "This will be an error in pandance 0.4.0",
+                      DeprecationWarning,
+                      stacklevel=2)
+        condition = relation
+
     left_on, right_on = _validate_input_col_names(on, left_on, right_on)
 
     result = _cartesian_join_with_mem_check(left, right, left_on, right_on, suffixes)
 
-    def _safe_relation(x, y) -> bool:
+    def _safe_condition(x, y) -> bool:
         """Wrapper to guard against known exceptions"""
         try:
-            return relation(x, y)
+            return condition(x, y)
         except InvalidOperation:
             return False
 
@@ -481,7 +496,7 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
         left_on, right_on = left_on + suffixes[0], right_on + suffixes[1]
     result = result[
         result.apply(
-            lambda row: _safe_relation(row[left_on], row[right_on]),
+            lambda row: _safe_condition(row[left_on], row[right_on]),
             axis='columns'
         )
     ]

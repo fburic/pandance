@@ -339,12 +339,13 @@ Theta Joins
 """""""""""
 
 While joins naturally capture exact or approximate matching between columns,
-in principle pairs of values may be considered to match based on any criteria.
+in principle pairs of values may be considered to match based on any set of criteria.
 
 In `relational algebra <https://en.wikipedia.org/wiki/Relational_algebra#%CE%B8-join_and_equijoin>`_,
 a :math:`\theta`-join is a join where pairs :math:`(a, b)`
 of values from columns A and B are considered to match
-if they fulfill a relation :math:`\theta`, which we could write :math:`\theta(a, b) = True`.
+if they fulfill a condition :math:`\theta`, which we could write :math:`\theta(a, b) = True`
+(also known as a `binary relation <https://en.wikipedia.org/wiki/Binary_relation>`_).
 
 Pandance implements an (inner) :py:meth:`theta_join <pandance.theta_join>` that takes a
 user-specified boolean-valued function which judges whether pairs of elements match.
@@ -375,13 +376,13 @@ and want to find all pairs in which `keywords` appear as substrings of `phrases`
     |                 |    |                                                     |
     +-----------------+----+-----------------------------------------------------+
 
-A :math:`\theta`-join can be written with a user-specified match relation
+A :math:`\theta`-join can be written with a user-specified match condition
 :python:`lambda kw, phrase: kw in phrase` like so::
 
     dance.theta_join(
         keywords, phrases,
         left_on='keyword', right_on='phrase',
-        relation=lambda kw, phrase: kw in phrase
+        condition=lambda kw, phrase: kw in phrase
     )
 
 Which results in:
@@ -401,7 +402,7 @@ and examples.
 
 .. warning::
 
-    Since this Pandance operation allows any user-specified matching relation,
+    Since this Pandance operation allows any user-specified matching condition,
     there is no way of avoiding a Cartesian join of the two join columns
     (comparing everything with everything).
     This will likely consume all available memory for large data sets,
