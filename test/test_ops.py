@@ -35,9 +35,9 @@ def test_fuzzy_join_simple():
     ], columns=['event_x', 'time_obs_x', 'event_y', 'time_obs_y'])
 
     theta_result = dance.theta_join(df_a, df_b, on='time_obs',
-                                    relation=lambda x, y: abs(x-y) <= 0.05)
+                                    condition=lambda x, y: abs(x-y) <= 0.05)
     theta_result_none = dance.theta_join(df_a, df_b, on='time_obs',
-                                         relation=lambda x, y: abs(x-y) <= 0.01)
+                                         condition=lambda x, y: abs(x-y) <= 0.01)
 
     fuzzy_result = dance.fuzzy_join(df_a, df_b, on='time_obs', tol=0.05)
     fuzzy_result_none = dance.fuzzy_join(df_a, df_b, on='time_obs', tol=0.001)
@@ -77,7 +77,7 @@ def test_fuzzy_join_datetime():
     )
     theta_result = (
         dance.theta_join(time_data_a, time_data_b, on='obs_time',
-                         relation=lambda ta, tb: abs(ta-tb) <= pd.Timedelta('1 minute'))
+                         condition=lambda ta, tb: abs(ta-tb) <= pd.Timedelta('1 minute'))
         .sort_values(['event_x', 'event_y'])
         .reset_index(drop=True)
     )
@@ -114,7 +114,7 @@ def test_fuzzy_join_range_overlap(data_range_start, data_range_end):
     )
     theta_result = (
         dance.theta_join(time_data_a, time_data_b, on='time',
-                         relation=lambda ta, tb: abs(ta - tb) <= pd.Timedelta('1 hour'))
+                         condition=lambda ta, tb: abs(ta - tb) <= pd.Timedelta('1 hour'))
         .sort_values(['index_x', 'index_y'])
         .reset_index(drop=True)
     )
@@ -155,7 +155,7 @@ def test_fuzzy_join_safe(values_a, tolerance):
         assert result_row_correct.all()
 
         theta_result = dance.theta_join(df_a, df_b, on='val',
-                                        relation=lambda x, y: abs(x - y) <= tolerance)
+                                        condition=lambda x, y: abs(x - y) <= tolerance)
         # Make DFs comparable
         fuzzy_result = (fuzzy_result.sort_values(['index_x', 'index_y'])
                         .reset_index(drop=True))
@@ -205,7 +205,7 @@ def test_theta_join_numeric():
     )
 
     result = dance.theta_join(a, b, on='key',
-                              relation=lambda x, y: x % 32 == y % 32 == 0)
+                              condition=lambda x, y: x % 32 == y % 32 == 0)
 
     a = a.assign(key_transf = a['key'] % 32)
     b = b.assign(key_transf = b['key'] % 32)
@@ -243,7 +243,7 @@ def test_theta_join_relation():
         columns=['item_old', 'price_old', 'item_new', 'price_new']
     )
     result = dance.theta_join(car, boat, on='price',
-                              relation=lambda x, y: x >= y,
+                              condition=lambda x, y: x >= y,
                               suffixes=('_old', '_new'))
     assert result.compare(expected_result).empty
 
@@ -261,7 +261,7 @@ def test_ineq_join():
 
     expected_result = dance.theta_join(
         left_df, right_df, on='price',
-        relation=lambda x, y: x < y,
+        condition=lambda x, y: x < y,
         suffixes=('_left', '_right')
     )
     expected_result = expected_result[
@@ -287,7 +287,7 @@ def test_ineq_join():
 
     expected_result = dance.theta_join(
         left_df, right_df, on='price',
-        relation=lambda x, y: x >= y,
+        condition=lambda x, y: x >= y,
         suffixes=('_left', '_right')
     )
     expected_result = expected_result[
@@ -331,7 +331,7 @@ def test_ineq_join_temporal():
 
     expected_result = dance.theta_join(
         detector_x, detector_y, on='timestamp',
-        relation=lambda x, y: x > y
+        condition=lambda x, y: x > y
     )
     expected_result = expected_result.sort_values(['timestamp_x', 'timestamp_y']).reset_index(drop=True)
 
@@ -402,7 +402,7 @@ def test_ineq_join_overlap(len_a: int, len_b: int, len_overlap: int):
     df_b = pd.DataFrame(range(len_a - len_overlap, len_a - len_overlap + len_b), columns=['val'])
 
     result = dance.ineq_join(df_a, df_b, on='val', how='<')
-    expected_result = dance.theta_join(df_a, df_b, on='val', relation=lambda x, y: x < y)
+    expected_result = dance.theta_join(df_a, df_b, on='val', condition=lambda x, y: x < y)
 
     expected_len = len_a * len_b + math.comb(len_overlap, 2) - len_overlap**2
     assert expected_len == result.shape[0]
@@ -421,7 +421,7 @@ def test_theta_join_strings():
     ], columns=['keyword', 'phrase'])
     hits = dance.theta_join(
         keywords, phrases, left_on='keyword', right_on='phrase',
-        relation=lambda kw, phrase: kw in phrase
+        condition=lambda kw, phrase: kw in phrase
     )
     assert hits.compare(expected_hits).empty
 
@@ -437,7 +437,7 @@ def test_theta_join_circle(angle):
     y = pd.DataFrame(np.sin(angle), columns=['y'])
 
     result = dance.theta_join(x, y, left_on='x', right_on='y',
-                              relation=lambda x, y: math.isclose(x**2 + y**2 - 1, 0))
+                              condition=lambda x, y: math.isclose(x**2 + y**2 - 1, 0))
     vals = result.values
     assert np.allclose(np.power(vals[:, 0], 2) + np.power(vals[:, 1], 2) - 1, 0)
 
