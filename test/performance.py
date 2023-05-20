@@ -4,6 +4,8 @@ Profile speed and memory usage of Pandance operations.
 import cProfile, pstats, io
 import datetime
 from pstats import SortKey
+import random
+import time
 
 import numpy as np
 import pandas as pd
@@ -16,8 +18,8 @@ def main():
         # fuzzy_speed_identical,
         # fuzzy_speed_random,
         # ineq_join_random_unif,
-        ineq_join_overlap_cartesian,
-        # theta_join_overlap_cartesian
+        # ineq_join_overlap_cartesian,
+        theta_join_overlap_cartesian
     ]:
         profile_function(func)
 
@@ -118,7 +120,16 @@ def theta_join_overlap_cartesian():
     df_a = pd.DataFrame(range(0, len_a), columns=['val'])
     df_b = pd.DataFrame(range(len_a - len_overlap, len_a - len_overlap + len_b), columns=['val'])
 
-    result = dance.theta_join(df_a, df_b, on='val', relation=lambda a, b: a < b)
+    result = dance.theta_join(
+        df_a, df_b, on='val', condition=lambda a, b: a < b,  #_sim_heavy_task
+        par_threshold = int(1e3),
+        n_processes = 4
+    )
+
+
+def _sim_heavy_task(x, y):
+    time.sleep(0.1)
+    return random.choice([True, False])
 
 
 if __name__ == '__main__':

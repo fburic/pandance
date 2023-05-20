@@ -481,3 +481,6 @@ def test_mem_usage():
     assert np.isclose(expected_size, cartesian_cost)
     assert np.isclose(expected_size, est_cost)
     assert np.isclose(cartesian_cost, est_cost)
+
+
+test_theta_join_relation()

@@ -5,6 +5,7 @@ import logging
 import operator
 import warnings
 from decimal import Decimal, InvalidOperation
+from multiprocessing import Pool, cpu_count
 from typing import Callable, Optional, Union, Iterable
 
 import intervaltree as itree
@@ -14,7 +15,6 @@ import psutil
 
 __all__ = ['fuzzy_join', 'theta_join', 'ineq_join',
            '_estimate_mem_cost_cartesian', '_cartesian_join_with_mem_check']
-
 
 logger = logging.getLogger()
 
@@ -322,20 +322,33 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
                condition: Callable[..., bool] = None,
                on: str = None, left_on: str = None, right_on: str = None,
                suffixes: Optional[tuple] = ('_x', '_y'),
+               n_processes: int = None,
+               par_threshold: int = 1000,
                relation: Callable[..., bool] = None) -> pd.DataFrame:
     """
     Perform an inner join with a user-specified match ``condition``.
 
     A *theta-join* is an operation in which rows in the join columns
-    are matched using an arbitrary condition θ
+    are matched using an arbitrary condition :math:`\\theta`
     that holds between the row entries
     (i.e. the pair is in a `binary relation <https://en.wikipedia.org/wiki/Binary_relation>`_).
-    It generalizes equijoins (where θ = equality).
+    It generalizes equijoins (where :math:`\\theta` = equality).
     See examples below and the
     `Wikipedia article <https://en.wikipedia.org/wiki/Relational_algebra#%CE%B8-join_and_equijoin>`_,
-    though in Pandance θ is not limited to the typical set of relations
+    though in Pandance, :math:`\\theta` is not limited to the typical set of relations
     {<, <=, =, !=, >=, >}. Rather, the user may specify any boolean-valued function
     as a ``condition``, as described below.
+
+    Since version ``0.3.0``, this join is parallelized for larger results.
+    To avoid unnecessary overhead on small data,
+    multiple processes are used only if the number of rows
+    in the intermediate Cartesian join (= left x right lengths)
+    is at least ``par_threshold``.
+    *Consider decreasing this threshold* if the condition function
+    takes a longer time to evaluate
+    (complex calculation, some sort of lookup / query, etc.)
+
+    By default, all CPU cores on the machine are used.
 
     .. warning::
         This operation is **memory-intensive!**
@@ -364,6 +377,18 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
     :param suffixes: A length-2 sequence where each element is optionally
         a string indicating the suffix to add to overlapping column names
         in left and right respectively, passed to ``pandas.merge()``
+    :param relation: (*deprecated*) Synonym for ``condition``
+    :param par_threshold: The intermediate Cartesian (cross) join must have at least
+                          this many rows for parallelism to be used when filtering
+                          on the *theta* condition.
+
+                          .. versionadded:: 0.3.0
+
+    :param n_processes: How many processes to spawn for performing the join.
+                        Defaults to the number of CPUs on the system.
+
+                        .. versionadded:: 0.3.0
+
     :return: The *theta*-join of the two DataFrames.
 
 
@@ -494,12 +519,25 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
     # Filter on theta
     if left_on == right_on:
         left_on, right_on = left_on + suffixes[0], right_on + suffixes[1]
-    result = result[
-        result.apply(
+
+    if n_processes is None:
+        n_processes = cpu_count()
+
+    if n_processes > 1 and result.shape[0] >= par_threshold:
+        result_pairs = result[[left_on, right_on]].to_records(index=False)
+        with Pool(processes=n_processes,
+                  initializer=_theta_filter_init,
+                  initargs=(condition,)) as pool:
+            row_matches = pool.starmap(
+                _safe_condition_parallel,
+                result_pairs
+            )
+    else:
+        row_matches = result.apply(
             lambda row: _safe_condition(row[left_on], row[right_on]),
             axis='columns'
         )
-    ]
+    result = result[row_matches]
     if result.shape[0] == 0:
         return result
 
@@ -510,6 +548,30 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
         left_index=True, right_index=True, suffixes=suffixes
     )
     return result
+
+
+def _safe_condition_parallel(x, y) -> bool:
+    """
+    Wrapper to guard against known exceptions,
+    as a module-level function to work with multiprocessing.
+    """
+    try:
+        return _theta_condition(x, y)
+    except InvalidOperation:
+        return False
+
+
+_theta_condition = None
+
+
+def _theta_filter_init(func: Callable):
+    """
+    A hack to wrap lambdas (user-provided conditions),
+    so we can multiprocess filtering on the condition.
+    Source: https://medium.com/@yasufumy/python-multiprocessing-c6d54107dd55
+    """
+    global _theta_condition
+    _theta_condition = func
 
 
 def _cartesian_join_with_mem_check(left: pd.DataFrame, right: pd.DataFrame,

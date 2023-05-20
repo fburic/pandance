@@ -172,8 +172,9 @@ respectively, sd=1) with a tolerance of 0.1, which resulted in
 
     The profiling scripts are available in the Pandance
     `repo <https://github.com/fburic/pandance/tree/main/test>`_.
-    The profiling was performed on a machine with 4x Intel Core i7-8550U @ 4 GHz and 8 GB RAM.
-    Pandance is currently single-threaded.
+    The profiling was performed on a machine with 4x Intel Core i7-8550U @ 4 GHz and 8 GB RAM,
+    under Manjaro Linux 22.1.1, kernel 5.15.109,
+    starting each test at about 37 C CPU temperature.
 
 
 Inequality Joins
@@ -275,6 +276,8 @@ In this case, the random database only has a few strings of lower ordering than 
     ============  =========
 
 
+.. _perf_ineq_join:
+
 Performance
 ~~~~~~~~~~~
 
@@ -299,6 +302,8 @@ but is an order of magnitude faster, as shown below on the same dataset.
     | ``pandance.ineq_join``                                 | 3.24      | 248         |
     +--------------------------------------------------------+-----------+-------------+
     | ``pandance.theta_join`` (cross join with ineq. filter) | 236       | 1000        |
+    +--------------------------------------------------------+-----------+-------------+
+    | ``pandance.theta_join`` (same, with 4 processes)       | 56        |             |
     +--------------------------------------------------------+-----------+-------------+
     | ``data.table`` join with inequality (``1 thread``)     | 0.2       | 30          |
     +--------------------------------------------------------+-----------+-------------+
@@ -339,8 +344,9 @@ but is an order of magnitude faster, as shown below on the same dataset.
 
     The profiling scripts are available in the Pandance
     `repo <https://github.com/fburic/pandance/tree/main/test>`_.
-    The profiling was performed on a machine with 4x Intel Core i7-8550U @ 4 GHz and 8 GB RAM.
-    Pandance is currently single-threaded.
+    The profiling was performed on a machine with 4x Intel Core i7-8550U @ 4 GHz and 8 GB RAM,
+    under Manjaro Linux 22.1.1, kernel 5.15.109,
+    starting each test at about 37 C CPU temperature.
 
 
 Theta Joins
@@ -405,6 +411,23 @@ Which results in:
     the      the quick brown fox jumps over the lazy dog
     =======  ===========================================
 
+
+Performance
+~~~~~~~~~~~
+
+Since the intermediate result of this operations can be very large,
+``theta_join`` is parallelized.
+
+This can help a lot with running time (see :ref:`benchmark <perf_ineq_join>`
+of inequality join implementations above),
+but the usual reminder is warranted,
+that parallelism does not always help, and that performance depends on
+your data, OS, and hardware.
+
+To avoid unnecessary overhead on small data,
+multiple processes are used only if the number of rows
+in the intermediate Cartesian join is over a (configurable) threshold.
+
 See the :py:meth:`theta_join <pandance.theta_join>` documentation for more details
 and examples.
 
@@ -416,6 +439,7 @@ and examples.
     This will likely consume all available memory for large data sets,
     so care must be taken (although Pandance will warn you first).
 
-    Consider instead using the special case provided by
+    Consider instead using the special cases provided by
     :py:meth:`fuzzy_join <pandance.fuzzy_join>`
+    and :py:meth:`fuzzy_join <pandance.theta_join>`
     whenever possible.
