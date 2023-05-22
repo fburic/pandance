@@ -433,13 +433,21 @@ def test_theta_join_strings():
 )
 @seed(42)
 def test_theta_join_circle(angle):
+    """
+    Given polar circle parameters t = `angle`, a radius of 1, and center at (0, 0),
+    and the parametric equation:
+    x = cos t
+    y = sin t
+    any set `angle` value should give x and y that satisfy the implicit equation:
+    x^2 + y^2 - 1 = 0
+    """
     x = pd.DataFrame(np.cos(angle), columns=['x'])
     y = pd.DataFrame(np.sin(angle), columns=['y'])
-
     result = dance.theta_join(x, y, left_on='x', right_on='y',
-                              condition=lambda x, y: math.isclose(x**2 + y**2 - 1, 0))
-    vals = result.values
-    assert np.allclose(np.power(vals[:, 0], 2) + np.power(vals[:, 1], 2) - 1, 0)
+                              condition=lambda x, y: math.isclose(x**2 + y**2 - 1, 0, abs_tol=1e-5))
+    vals = result[['x', 'y']].values
+    assert np.allclose(np.power(vals[:, 0], 2) + np.power(vals[:, 1], 2) - 1, 0,
+                       atol=1e-5)
 
 
 def test_mem_usage():
@@ -481,6 +489,3 @@ def test_mem_usage():
     assert np.isclose(expected_size, cartesian_cost)
     assert np.isclose(expected_size, est_cost)
     assert np.isclose(cartesian_cost, est_cost)
-
-
-test_theta_join_relation()

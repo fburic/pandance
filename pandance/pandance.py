@@ -1,5 +1,6 @@
 import bisect
 import datetime
+import functools
 import itertools
 import logging
 import operator
@@ -13,8 +14,7 @@ import numpy as np
 import pandas as pd
 import psutil
 
-__all__ = ['fuzzy_join', 'theta_join', 'ineq_join',
-           '_estimate_mem_cost_cartesian', '_cartesian_join_with_mem_check']
+__all__ = ['fuzzy_join', 'theta_join', 'ineq_join', '_estimate_mem_cost_cartesian']
 
 logger = logging.getLogger()
 
@@ -318,15 +318,26 @@ def _empty_df(left_on, right_on, suffixes):
     return pd.DataFrame([], columns=[left_on, right_on])
 
 
+def _theta_filter_init(func: Callable):
+    """
+    A hack to wrap lambdas (user-provided conditions),
+    so we can multiprocess filtering on the condition.
+    Source: https://medium.com/@yasufumy/python-multiprocessing-c6d54107dd55
+    """
+    global _theta_condition
+    _theta_condition = func
+
+
 def theta_join(left: pd.DataFrame, right: pd.DataFrame,
                condition: Callable[..., bool] = None,
                on: str = None, left_on: str = None, right_on: str = None,
                suffixes: Optional[tuple] = ('_x', '_y'),
                n_processes: int = None,
-               par_threshold: int = 1000,
+               par_threshold: int = 10000,
                relation: Callable[..., bool] = None) -> pd.DataFrame:
     """
-    Perform an inner join with a user-specified match ``condition``.
+    Perform an inner join with a user-specified match ``condition``
+    (any boolean-valued function taking two arguments).
 
     A *theta-join* is an operation in which rows in the join columns
     are matched using an arbitrary condition :math:`\\theta`
@@ -335,33 +346,20 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
     It generalizes equijoins (where :math:`\\theta` = equality).
     See examples below and the
     `Wikipedia article <https://en.wikipedia.org/wiki/Relational_algebra#%CE%B8-join_and_equijoin>`_,
-    though in Pandance, :math:`\\theta` is not limited to the typical set of relations
-    {<, <=, =, !=, >=, >}. Rather, the user may specify any boolean-valued function
-    as a ``condition``, as described below.
+    though note that in Pandance, :math:`\\theta` is not limited to the typical set of relations
+    {<, <=, =, !=, >=, >}.
 
     Since version ``0.3.0``, this join is parallelized for larger results.
     To avoid unnecessary overhead on small data,
     multiple processes are used only if the number of rows
-    in the intermediate Cartesian join (= left x right lengths)
-    is at least ``par_threshold``.
+    in the longest input dataframe is at least ``par_threshold``.
     *Consider decreasing this threshold* if the condition function
     takes a longer time to evaluate
     (complex calculation, some sort of lookup / query, etc.)
+    By default, all CPU cores on the machine are used
+    (taking ``n_processes = multiprocessing.cpu_count()``).
 
-    By default, all CPU cores on the machine are used.
-
-    .. warning::
-        This operation is **memory-intensive!**
-        Since this is a generic operation for any given `theta` condition,
-        it's implemented as a Cartesian product of the two ``on`` columns
-        in the input DataFrames,
-        followed by a filter on the pairs for which the `theta` condition holds.
-        So the memory usage is :math:`O(n \\cdot m)`,
-        where `n` and `m` are the respective sizes of the ``on`` columns.
-
-        A warning is logged if the estimated requirement is above 75%
-        of available memory and a ``MemoryError`` is raised if the estimate exceeds
-        available memory.
+    The indices of the input DataFrames is ignored (a new one RangeIndex is generated).
 
     :param left: The left-hand side Pandas DataFrame
     :param right: The right-hand side Pandas DataFrame
@@ -378,9 +376,8 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
         a string indicating the suffix to add to overlapping column names
         in left and right respectively, passed to ``pandas.merge()``
     :param relation: (*deprecated*) Synonym for ``condition``
-    :param par_threshold: The intermediate Cartesian (cross) join must have at least
-                          this many rows for parallelism to be used when filtering
-                          on the *theta* condition.
+    :param par_threshold: The longest input dataframe must have at least
+                          this many rows for parallelism to be used.
 
                           .. versionadded:: 0.3.0
 
@@ -425,10 +422,10 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
     ...     condition = lambda x, y: math.isclose(x**2 + y**2 - 1, 0)
     ... )
          x    y
-    0  0.0  1.0
-    1  0.0 -1.0
-    2  1.0  0.0
-    3 -1.0  0.0
+    0  1.0  0.0
+    1 -1.0  0.0
+    2  0.0  1.0
+    3  0.0 -1.0
 
 
     **Substring matching**
@@ -487,8 +484,8 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
     ...
         item_carb  price_carb  item_prot  price_prot
     0        rice          34  chickpeas          38
-    1        rice          34  soy beans          48
-    2  oat flakes          32  chickpeas          38
+    1  oat flakes          32  chickpeas          38
+    2        rice          34  soy beans          48
     3  oat flakes          32  soy beans          48
 
     .. tip::
@@ -507,87 +504,104 @@ def theta_join(left: pd.DataFrame, right: pd.DataFrame,
 
     left_on, right_on = _validate_input_col_names(on, left_on, right_on)
 
-    result = _cartesian_join_with_mem_check(left, right, left_on, right_on, suffixes)
+    # To make multiprocessing more efficient,
+    # we parallelize lookups against the longer dataframe.
+    # The code conceptually keeps the left-right input order since the condition
+    # is not generally symmetric.
+    if left.shape[0] > right.shape[0]:
+        swap_col_order = True
+        suffixes = suffixes[::-1]
+        right_on, left_on = left_on, right_on
+        right, left = left, right
+    else:
+        swap_col_order = False
 
     def _safe_condition(x, y) -> bool:
         """Wrapper to guard against known exceptions"""
+        if swap_col_order:
+            x, y = y, x
         try:
             return condition(x, y)
         except InvalidOperation:
             return False
 
-    # Filter on theta
-    if left_on == right_on:
-        left_on, right_on = left_on + suffixes[0], right_on + suffixes[1]
-
     if n_processes is None:
         n_processes = cpu_count()
 
-    if n_processes > 1 and result.shape[0] >= par_threshold:
-        result_pairs = result[[left_on, right_on]].to_records(index=False)
+    left_to_right_search = zip(left.index,
+                               left[left_on].values.ravel(),
+                               [right[right_on]] * left.shape[0])
+
+    if n_processes > 1 and max(left.shape[0], right.shape[0]) >= par_threshold:
         with Pool(processes=n_processes,
                   initializer=_theta_filter_init,
-                  initargs=(condition,)) as pool:
-            row_matches = pool.starmap(
-                _safe_condition_parallel,
-                result_pairs
+                  initargs=(_safe_condition,)) as pool:
+            result = pool.starmap(
+                functools.partial(_theta_map_filter, condition=_condition_parallel),
+                left_to_right_search
             )
     else:
-        row_matches = result.apply(
-            lambda row: _safe_condition(row[left_on], row[right_on]),
-            axis='columns'
+        result = itertools.starmap(
+            functools.partial(_theta_map_filter, condition=_safe_condition),
+            left_to_right_search
         )
-    result = result[row_matches]
-    if result.shape[0] == 0:
-        return result
+    result = list(filter(lambda r: r is not None, result))
+    if not len(result):
+        return _empty_df(left_on, right_on, suffixes)
 
-    # Get other column items from input DataFrames
-    result = pd.merge(
-        left.loc[result['index' + suffixes[0]]].reset_index(drop=True),
-        right.loc[result['index' + suffixes[1]]].reset_index(drop=True),
-        left_index=True, right_index=True, suffixes=suffixes
+    result = np.vstack(result)
+    result = pd.DataFrame(result, columns=['index_left', 'index_right'])
+
+    if swap_col_order:
+        suffixes = suffixes[::-1]
+        right, left = left, right
+        index_left, index_right = 'index_right', 'index_left'
+    else:
+        index_left, index_right = 'index_left', 'index_right'
+
+    result.set_index(index_left, inplace=True)
+    result = left.join(result, how='inner', lsuffix=suffixes[0], rsuffix=suffixes[1])
+    result.set_index(index_right, inplace=True)
+    result = result.join(right,  how='inner', lsuffix=suffixes[0], rsuffix=suffixes[1])
+    return result.reset_index(drop=True)
+
+
+def _theta_map_filter(query_idx, query_val, lookup_col, condition: Callable):
+    """
+    The query is set as the left column, and the lookup as the right.
+    This is reflected in the return array, with the left column as query.
+    """
+    right_matching_idx = lookup_col.map(
+        lambda lookup_val: condition(query_val, lookup_val)
     )
-    return result
+    matches = lookup_col[right_matching_idx]
+    if matches.shape[0] == 0:
+        return None
+    matches = np.vstack([
+        np.ones_like(matches, dtype=type(query_idx)) * query_idx,
+        lookup_col[right_matching_idx].index
+    ]).T
+    return matches
 
 
-def _safe_condition_parallel(x, y) -> bool:
+def _condition_parallel(x, y) -> bool:
     """
     Wrapper to guard against known exceptions,
     as a module-level function to work with multiprocessing.
     """
-    try:
-        return _theta_condition(x, y)
-    except InvalidOperation:
-        return False
+    return _theta_condition(x, y)
 
 
 _theta_condition = None
-
-
-def _theta_filter_init(func: Callable):
-    """
-    A hack to wrap lambdas (user-provided conditions),
-    so we can multiprocess filtering on the condition.
-    Source: https://medium.com/@yasufumy/python-multiprocessing-c6d54107dd55
-    """
-    global _theta_condition
-    _theta_condition = func
 
 
 def _cartesian_join_with_mem_check(left: pd.DataFrame, right: pd.DataFrame,
                                    left_on: str, right_on: str, suffixes: tuple) -> pd.DataFrame:
     """
     Wraps a Pandas cross (Cartesian) join with a memory usage check.
-    Throw ``MemoryError`` if estimated usage exceeds available memory.
+
     """
-    est_mem = _estimate_mem_cost_cartesian(left[[left_on]], right[[right_on]])
-    avail_mem = psutil.virtual_memory()
-    avail_mem = (avail_mem.total - avail_mem.used) / 1024**2
-    if est_mem > avail_mem:
-        logger.error(f'The operation requires more memory than is currently available: {est_mem} MiB')
-        raise MemoryError
-    if est_mem / avail_mem > 0.75:
-        logger.warning(f'The operation requires over 75% ({est_mem}) of available memory')
+    _mem_check(left, right, left_on, right_on)
 
     # Cartesian join
     result = pd.merge(left[[left_on]].reset_index(),
@@ -612,6 +626,7 @@ def ineq_join(left: pd.DataFrame, right: pd.DataFrame,
 
     Note that the operation is not guaranteed to preserve the row or column order
     of the input dataframes, in order to save time.
+    The indices of the input DataFrames is ignored (a new one RangeIndex is generated).
 
     .. note::
 
@@ -677,11 +692,11 @@ def ineq_join(left: pd.DataFrame, right: pd.DataFrame,
     ...
                    dep_ab                 arr_ab                  dep_bc                  arr_bc
     0 2023-01-01 08:00:00    2023-01-01 10:00:00     2023-01-01 14:00:00     2023-01-01 17:00:00
-    0 2023-01-01 08:00:00    2023-01-01 10:00:00     2023-01-01 18:00:00     2023-01-01 21:00:00
-    1 2023-01-01 12:00:00    2023-01-01 14:00:00     2023-01-01 18:00:00     2023-01-01 21:00:00
-    0 2023-01-01 08:00:00    2023-01-01 10:00:00     2023-01-01 21:00:00     2023-01-02 00:00:00
-    1 2023-01-01 12:00:00    2023-01-01 14:00:00     2023-01-01 21:00:00     2023-01-02 00:00:00
-    2 2023-01-01 16:00:00    2023-01-01 18:00:00     2023-01-01 21:00:00     2023-01-02 00:00:00
+    1 2023-01-01 08:00:00    2023-01-01 10:00:00     2023-01-01 18:00:00     2023-01-01 21:00:00
+    2 2023-01-01 12:00:00    2023-01-01 14:00:00     2023-01-01 18:00:00     2023-01-01 21:00:00
+    3 2023-01-01 08:00:00    2023-01-01 10:00:00     2023-01-01 21:00:00     2023-01-02 00:00:00
+    4 2023-01-01 12:00:00    2023-01-01 14:00:00     2023-01-01 21:00:00     2023-01-02 00:00:00
+    5 2023-01-01 16:00:00    2023-01-01 18:00:00     2023-01-01 21:00:00     2023-01-02 00:00:00
 
     **Numerical data**
 
@@ -707,10 +722,10 @@ def ineq_join(left: pd.DataFrame, right: pd.DataFrame,
     ...     suffixes=('_carb', '_prot'))
     ...
         item_carb  price_carb  price_prot  item_prot
-    1        rice          34          38  chickpeas
+    0        rice          34          38  chickpeas
     1  oat flakes          32          38  chickpeas
     2        rice          34          48  soy beans
-    2  oat flakes          32          48  soy beans
+    3  oat flakes          32          48  soy beans
 
 
     **Strings**
@@ -733,10 +748,10 @@ def ineq_join(left: pd.DataFrame, right: pd.DataFrame,
 
     >>> dance.ineq_join(query, database, how='>', on='string', suffixes=('_query', '_db'))
       string_query string_db
-    3          bbb       afn
-    3          ccc       afn
-    4          bbb       afq
-    4          ccc       afq
+    0          bbb       afn
+    1          ccc       afn
+    2          bbb       afq
+    3          ccc       afq
     """
     allowed_rels = ['<', '<=', '>=', '>']
     opposite_rel = {'<': '>', '<=': '>=', '>': '<', '>=': '<='}
@@ -828,7 +843,7 @@ def ineq_join(left: pd.DataFrame, right: pd.DataFrame,
         lsuffix=suffixes[0], rsuffix=suffixes[1]
     )
 
-    return result
+    return result.reset_index(drop=True)
 
 
 def _get_ineq_match_results(match_entries: Callable, lookup: pd.DataFrame, longer_col: str,
@@ -859,6 +874,21 @@ def _natch_lower_values_left(val, lookup, longer_col):
 
 def _natch_lower_values_right(val, lookup, longer_col):
     return range(0, bisect.bisect_right(lookup[longer_col].values, val))
+
+
+def _mem_check(left: pd.DataFrame, right: pd.DataFrame,
+               left_on: str, right_on: str):
+    """
+    Throw ``MemoryError`` if estimated usage exceeds available memory.
+    """
+    est_mem = _estimate_mem_cost_cartesian(left[[left_on]], right[[right_on]])
+    avail_mem = psutil.virtual_memory()
+    avail_mem = (avail_mem.total - avail_mem.used) / 1024**2
+    if est_mem > avail_mem:
+        logger.error(f'The operation requires more memory than is currently available: {est_mem} MiB')
+        raise MemoryError
+    if est_mem / avail_mem > 0.75:
+        logger.warning(f'The operation requires over 75% ({est_mem}) of available memory')
 
 
 def _estimate_mem_cost_cartesian(a: pd.DataFrame, b: pd.DataFrame) -> int:

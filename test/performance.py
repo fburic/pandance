@@ -113,17 +113,19 @@ def theta_join_overlap_cartesian():
     Generate two integer ranges A and B >= A with parametrized overlap length L
     The total number of pairs in the result is A * B  + Comb[L, 2] - L^2
     """
-    len_a = 3000
-    len_b = 3000
-    len_overlap = 1500
+    len_a = 10
+    len_b = 10
+    len_overlap = 2
 
     df_a = pd.DataFrame(range(0, len_a), columns=['val'])
     df_b = pd.DataFrame(range(len_a - len_overlap, len_a - len_overlap + len_b), columns=['val'])
 
     result = dance.theta_join(
-        df_a, df_b, on='val', condition=lambda a, b: a < b,  #_sim_heavy_task
-        par_threshold = int(1e3),
-        n_processes = 4
+        df_a, df_b, on='val', 
+        condition=lambda a, b: a < b,
+        # condition=_sim_heavy_task,
+        par_threshold = int(1e2),
+        n_processes = 1
     )
 
 

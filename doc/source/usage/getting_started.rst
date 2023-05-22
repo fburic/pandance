@@ -143,8 +143,9 @@ respectively, sd=1) with a tolerance of 0.1, which resulted in
 
     The R ``fuzzyjoin`` implementation (as of version 0.1.6),
     as well as solutions on e.g. StackOverflow,
-    perform the operation as a Cartesian join (comparing all against all,
-    so a :math:`O(m)` lookup time for each entry in the shorter column),
+    perform the operation (conceptually) as a Cartesian join
+    (comparing all against all, so a :math:`O(m)` lookup time
+    for each entry in the shorter column),
     followed by filtering on pairs within the tolerance.
 
     The dataset used for profiling consists of two tables containing 1e4 numbers sampled
@@ -301,9 +302,9 @@ but is an order of magnitude faster, as shown below on the same dataset.
     +========================================================+===========+=============+
     | ``pandance.ineq_join``                                 | 3.24      | 248         |
     +--------------------------------------------------------+-----------+-------------+
-    | ``pandance.theta_join`` (cross join with ineq. filter) | 236       | 1000        |
+    | ``pandance.theta_join`` (cross join with ineq. filter) | 9.3       | 255         |
     +--------------------------------------------------------+-----------+-------------+
-    | ``pandance.theta_join`` (same, with 4 processes)       | 56        |             |
+    | ``pandance.theta_join`` (same, with 4 processes)       | 4.42      | 343         |
     +--------------------------------------------------------+-----------+-------------+
     | ``data.table`` join with inequality (``1 thread``)     | 0.2       | 30          |
     +--------------------------------------------------------+-----------+-------------+
@@ -415,31 +416,22 @@ Which results in:
 Performance
 ~~~~~~~~~~~
 
-Since the intermediate result of this operations can be very large,
-``theta_join`` is parallelized.
-
-This can help a lot with running time (see :ref:`benchmark <perf_ineq_join>`
-of inequality join implementations above),
-but the usual reminder is warranted,
-that parallelism does not always help, and that performance depends on
-your data, OS, and hardware.
+``theta_join`` is parallelized, which is especially helpful for larger dataframes,
+since all rows in left join column need to be evaluated against all rows in the right
+in a linear fashion
+(no logarithmic lookup speed-ups such as binary search for ``ineq_join``
+or interval trees for ``fuzzy_join``).
+See the :ref:`benchmark <perf_ineq_join>` above comparing
+the performance of ``ineq_join`` with an equivalent ``theta_join``.
 
 To avoid unnecessary overhead on small data,
 multiple processes are used only if the number of rows
-in the intermediate Cartesian join is over a (configurable) threshold.
+in the longest input dataframe is over a (configurable) threshold.
+
+The usual reminder is warranted,
+that parallelism does not always help, and that performance depends on
+your data, OS, and hardware.
+
 
 See the :py:meth:`theta_join <pandance.theta_join>` documentation for more details
 and examples.
-
-.. warning::
-
-    Since this Pandance operation allows any user-specified matching condition,
-    there is no way of avoiding a Cartesian join of the two join columns
-    (comparing everything with everything).
-    This will likely consume all available memory for large data sets,
-    so care must be taken (although Pandance will warn you first).
-
-    Consider instead using the special cases provided by
-    :py:meth:`fuzzy_join <pandance.fuzzy_join>`
-    and :py:meth:`fuzzy_join <pandance.theta_join>`
-    whenever possible.

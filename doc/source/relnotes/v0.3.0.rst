@@ -16,8 +16,11 @@ Features
 Performance
 -----------
 
+* Large performance improvements for :py:meth:`<pandance.theta_join>`:
+  x25 increase in speed on the :ref:`benchmark <perf_ineq_join>`
+  and avoids an intermediate Cartesian join that can quickly consume all memory for larger inputs.
+
 * Slight performance improvements for :py:meth:`<pandance.fuzzy_join>`
-  :py:meth:`<pandance.theta_join>`
 
 
 Documentation
