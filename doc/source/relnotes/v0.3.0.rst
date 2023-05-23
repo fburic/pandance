@@ -1,6 +1,6 @@
 .. _relnotes030:
 
-What's new in 0.3.0 (May X, 2023)
+What's new in 0.3.0 (May 23, 2023)
 ======================================
 
 Features
